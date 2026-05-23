@@ -106,8 +106,12 @@ int main() {
         close(serverSocketFd);
         return 1; 
     }
+
+
+    const size_t BUFFER_SIZE = 4096;
+    char writeFileBuffer[BUFFER_SIZE];
+    long long totalBytesReceived = 0;
     while (true) {
-        char writeFileBuffer[1024];
         ssize_t bytesReceivedForFile = recv(serverToClientSocketFd, writeFileBuffer, sizeof(writeFileBuffer), 0);
 
         if (bytesReceivedForFile == -1) {
@@ -121,7 +125,10 @@ int main() {
 
         // dont setup '\0' bcz file bite is not a string
         outputFile.write(writeFileBuffer, bytesReceivedForFile);
+        totalBytesReceived += bytesReceivedForFile;
     }
+
+    cout << "Total bytes received: " << totalBytesReceived << endl;
 
     outputFile.close();
     // 08: close sockets

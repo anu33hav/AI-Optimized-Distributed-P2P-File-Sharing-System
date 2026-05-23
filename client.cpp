@@ -90,27 +90,37 @@ int main() {
         return 1;
     }
 
-
+    const size_t BUFFER_SIZE = 4096;
+    char readFileBuffer[BUFFER_SIZE]; // 1st iteration abcdefg and on 2nd iteration it contains hijk, now efg will also retain, but i am using gcount() and to sent i have also uses how much byte i want to send
+    long long totalBytesSent = 0;
     while (inputFile) { // loop bcz if file > 1024 || loop till eof valid, not corrupted or read not failed
-        char readFileBuffer[1024];
-        inputFile.read(readFileBuffer, sizeof(readFileBuffer));
+        
+        inputFile.read(readFileBuffer, BUFFER_SIZE);
         
         streamsize bytesReadFromFileBuffer = inputFile.gcount(); // suppose out 1024 300 is reamaning then its only store upto 724
-        if (bytesReadFromFileBuffer > 0) {
-            ssize_t byteSentToServer = send(clientSocketFd, readFileBuffer, bytesReadFromFileBuffer, 0);
+        
+        streamsize totalSent = 0;
 
-            if (byteSentToServer == -1) {
-                cerr << "Failed to send file data" << endl;
+        while (totalSent < bytesReadFromFileBuffer) { // suppose kernel buffer have limited space, so for this we use loop
+            ssize_t bytesSentToServer = send(clientSocketFd, readFileBuffer + totalSent, bytesReadFromFileBuffer - totalSent, 0);
+            
+            if (bytesSentToServer == -1) {
+                cerr << "Failed to send file data" << endl; 
                 close(clientSocketFd);
                 return 1;
             }
-            else if (byteSentToServer == 0) {
+            else if (bytesSentToServer == 0) {
                 cerr << "Internal problem failed to send file data" << endl;
                 close(clientSocketFd);
                 return 1;
             }
+
+            totalSent += bytesSentToServer;
+            totalBytesSent += bytesSentToServer;
         }
     }
+
+    cout << "Total bytes sent: " << totalBytesSent << endl;
 
     inputFile.close();
     close(clientSocketFd);
