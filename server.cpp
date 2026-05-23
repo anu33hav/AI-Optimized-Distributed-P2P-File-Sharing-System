@@ -4,6 +4,7 @@
 #include <unistd.h>
 #include <cstring>
 #include <string>
+#include <fstream>
 using namespace std;
 
 int main() {
@@ -14,6 +15,17 @@ int main() {
         cout << "Server socket creation failed" << endl;
         return 1;
     }
+
+    // after restarting the server its bind fails bcz OS keeps port in TIME_WAIT state for a while
+    // it helps server to reuse the same IP + port immediately after restarting 
+    int opt = 1; // enable
+    setsockopt(
+        serverSocketFd,
+        SOL_SOCKET,
+        SO_REUSEADDR,
+        &opt,
+        sizeof(opt)
+    );
 
     // 02: prepare address
     sockaddr_in serverAddress{};
@@ -44,7 +56,7 @@ int main() {
         return 1;
     }
 
-    // 06: receive data
+    /* // 06: receive data
     // consider TCP is water pipe
     // TCP is stream protocol not message protocol
     // TCP gurantees order + reliability, but not grouping bcz TCP splits data into segments
@@ -84,9 +96,34 @@ int main() {
             cout << "Reply send to client failed" << endl;
             break;
         }
+    } */
+
+    // 06A: receive file
+    ofstream outputFile("received.txt", ios::binary);
+    if (!outputFile) {
+        cerr << "Failed to open received.txt" << endl;
+        close(serverToClientSocketFd);
+        close(serverSocketFd);
+        return 1; 
+    }
+    while (true) {
+        char writeFileBuffer[1024];
+        ssize_t bytesReceivedForFile = recv(serverToClientSocketFd, writeFileBuffer, sizeof(writeFileBuffer), 0);
+
+        if (bytesReceivedForFile == -1) {
+            cerr << "recieved file failed" << endl;
+            break;
+        }
+        else if (bytesReceivedForFile == 0) {
+            cerr << "client closed connection" << endl;
+            break;
+        }
+
+        // dont setup '\0' bcz file bite is not a string
+        outputFile.write(writeFileBuffer, bytesReceivedForFile);
     }
 
-    
+    outputFile.close();
     // 08: close sockets
     close(serverToClientSocketFd); // release structure from kernel
     close(serverSocketFd);

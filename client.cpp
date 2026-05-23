@@ -4,6 +4,7 @@
 #include <arpa/inet.h>
 #include <unistd.h>
 #include <cstring>
+#include <fstream>
 using namespace std;
 
 int main() {
@@ -41,8 +42,8 @@ int main() {
         return 1;
     }
 
-    // 05: send message
-    while (true) {
+    /* // 05: send message
+    while (true) { 
         string sendMsgToServer;
         
         cout << "Enter msg for server: ";
@@ -79,9 +80,41 @@ int main() {
 
         buffer[bytesReceivedFromServer] = '\0';
         cout << "Server says: " << buffer << endl;
+    } */
+
+    // 05A: read and send file
+    ifstream inputFile("input.txt", ios::binary); // used to read || ifstream means pipe from file to program
+    if (!inputFile) {
+        cerr << "Failed to open input file in client side" << endl;
+        close(clientSocketFd);
+        return 1;
     }
 
+
+    while (inputFile) { // loop bcz if file > 1024 || loop till eof valid, not corrupted or read not failed
+        char readFileBuffer[1024];
+        inputFile.read(readFileBuffer, sizeof(readFileBuffer));
+        
+        streamsize bytesReadFromFileBuffer = inputFile.gcount(); // suppose out 1024 300 is reamaning then its only store upto 724
+        if (bytesReadFromFileBuffer > 0) {
+            ssize_t byteSentToServer = send(clientSocketFd, readFileBuffer, bytesReadFromFileBuffer, 0);
+
+            if (byteSentToServer == -1) {
+                cerr << "Failed to send file data" << endl;
+                close(clientSocketFd);
+                return 1;
+            }
+            else if (byteSentToServer == 0) {
+                cerr << "Internal problem failed to send file data" << endl;
+                close(clientSocketFd);
+                return 1;
+            }
+        }
+    }
+
+    inputFile.close();
     close(clientSocketFd);
+    cout << "File sent successfully" << endl;
 
     return 0;
 }
