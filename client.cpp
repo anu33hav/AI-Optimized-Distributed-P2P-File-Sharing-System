@@ -42,30 +42,41 @@ int main() {
     }
 
     // 05: send message
-    const char* sendMsgToServer = "Hello from client to server";
-    ssize_t bytesSentToServer = send(clientSocketFd, sendMsgToServer, strlen(sendMsgToServer), 0);
+    while (true) {
+        string sendMsgToServer;
+        
+        cout << "Enter msg for server: ";
+        if (!getline(cin, sendMsgToServer)) { // if terminal closes with input ctrl+d or input pipe ends then getline() fails and infinite loop for (enter msg for server)
+            cout << "Input closed" << endl;
+            break;
+        }
+        if (sendMsgToServer.empty()) continue;
 
-    if (bytesSentToServer == -1) {
-        cerr << "Msg send to server is failed";
-        close(clientSocketFd);
-        return 1;
-    }
+        ssize_t bytesSentToServer = send(clientSocketFd, sendMsgToServer.c_str(), sendMsgToServer.size(), 0);
 
-    // 06: receive reply
-    char buffer[1024] = {0};
-    ssize_t bytesReceivedFromServer = recv(clientSocketFd, buffer, sizeof(buffer)-1, 0);
+        if (bytesSentToServer == -1) {
+            cerr << "Msg send to server is failed";
+            break;
+        }
+        if (sendMsgToServer == "exit") {
+            cout << "Disconnected" << endl;
+            break;
+        }
 
-    if (bytesReceivedFromServer == -1) {
-        cerr << "Msg received from client failed" << endl;
-        close(clientSocketFd);
-        return 1;
-    }
-    else if (bytesReceivedFromServer == 0) {
-        cerr << "Server closed connection" << endl;
-        close(clientSocketFd);
-        return 1;
-    }
-    else {
+
+        // 06: receive reply
+        char buffer[1024] = {0};
+        ssize_t bytesReceivedFromServer = recv(clientSocketFd, buffer, sizeof(buffer)-1, 0);
+
+        if (bytesReceivedFromServer == -1) {
+            cerr << "Msg received from client failed" << endl;
+            break;
+        }
+        else if (bytesReceivedFromServer == 0) {
+            cerr << "Server closed connection" << endl;
+            break;
+        }
+
         buffer[bytesReceivedFromServer] = '\0';
         cout << "Server says: " << buffer << endl;
     }

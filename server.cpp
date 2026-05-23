@@ -3,6 +3,7 @@
 #include <netinet/in.h>
 #include <unistd.h>
 #include <cstring>
+#include <string>
 using namespace std;
 
 int main() {
@@ -48,20 +49,43 @@ int main() {
     // TCP is stream protocol not message protocol
     // TCP gurantees order + reliability, but not grouping bcz TCP splits data into segments
     // so there is chances that server get 5 bytes at once, or 2 bytes then remaning 3 bytes and so on, recv() call multiple times
-    char buffer[1024] = {0};
-    ssize_t bytesReceivedFromClient = recv(serverToClientSocketFd, buffer, sizeof(buffer)-1, 0); // copy data from client socket from kernel TCP buffer into buffer || buffer -1 for last char '\0'
 
-    if (bytesReceivedFromClient == -1) cout << "Server Received failed" << endl;
-    else if (bytesReceivedFromClient == 0) cout << "Client disconnected" << endl;
-    else {
+    // loop bcz i want TCP connection continuous
+    // Deadlock:
+    // Case 01: if server in recv and client dont send data -> forever stuck
+    // Case 02: if server and client both are on recv -> deadlock
+    // so, we decided for client first and server
+    while (true) {
+        char buffer[1024] = {0};
+        ssize_t bytesReceivedFromClient = recv(serverToClientSocketFd, buffer, sizeof(buffer)-1, 0); // copy data from client socket from kernel TCP buffer into buffer || buffer -1 for last char '\0'
+
+        if (bytesReceivedFromClient == -1) {
+            cerr << "Server Received failed" << endl;
+            break;
+        }
+        else if (bytesReceivedFromClient == 0) { // eof
+            cerr << "Client disconnected" << endl;
+            break;
+        }
+
         buffer[bytesReceivedFromClient] = '\0'; // convert into valid string
-        cout << "Client says: " << buffer << endl;
+        string messageFromClient(buffer);
+
+        if (messageFromClient == "exit") {
+            cout << "Client requested disconnected" << endl;
+            break;
+        }
+        cout << "Server received msg client says: " << messageFromClient << endl;
+
+        // 07: send reply
+        string sendMsgToClient = "Hello from server to client, client said: " + messageFromClient;
+        ssize_t bytesSentToClient = send(serverToClientSocketFd, sendMsgToClient.c_str(), sendMsgToClient.size(), 0); // it only gurantees that data is handover to client
+        if (bytesSentToClient == -1) {
+            cout << "Reply send to client failed" << endl;
+            break;
+        }
     }
- 
-    // 07: send reply
-    const char* sendMsgToClient = "Hello from server to client";
-    ssize_t bytesSentToClient = send(serverToClientSocketFd, sendMsgToClient, strlen(sendMsgToClient), 0); // it only gurantees that data is handover to client
-    if (bytesSentToClient == -1) cout << "Reply send to client failed" << endl;
+
     
     // 08: close sockets
     close(serverToClientSocketFd); // release structure from kernel
