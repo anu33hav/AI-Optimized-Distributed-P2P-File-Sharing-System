@@ -5,7 +5,7 @@
 #include <vector>
 using namespace std;
 
-int splitFileIntoChunks(const char* inputPath, const char* chunkDir, size_t chunkSize) {
+int splitFileIntoChunks(const char* inputPath, const char* baseChunkDir, const char* fileId, size_t chunkSize) {
 
     // 01: open file
     ifstream inputFile(inputPath, ios::binary);
@@ -15,7 +15,9 @@ int splitFileIntoChunks(const char* inputPath, const char* chunkDir, size_t chun
     }
 
     // 02: create dir for chunks, if it already exists nothing happens
-    filesystem::create_directories(chunkDir);
+    // filesystem::create_directories(chunkDir);
+    string fileChunkDir = string(baseChunkDir) + "/" + fileId;
+    filesystem::create_directories(fileChunkDir);
     
     // 03: make it input chunks
     vector<char> buffer(chunkSize);
@@ -27,8 +29,9 @@ int splitFileIntoChunks(const char* inputPath, const char* chunkDir, size_t chun
         if (bytesRead <= 0) break; // eof check
 
         // create chunnk file name
-        string chunkPath = string(chunkDir) + "/chunk_" + to_string(chunkIndex); // chunks/chunk_0
-        
+        // string chunkPath = string(chunkDir) + "/chunk_" + to_string(chunkIndex); // chunks/chunk_0
+        string chunkPath = getChunkPath(baseChunkDir, fileId, chunkIndex);
+
         // open chunk file
         ofstream chunkFile(chunkPath, ios::binary);
         if (!chunkFile) {
@@ -47,4 +50,13 @@ int splitFileIntoChunks(const char* inputPath, const char* chunkDir, size_t chun
     }
 
     return chunkIndex;
+}
+
+string getChunkPath (const char* baseChunkDir, const char* fileId, int chunkIndex) {
+    return string(baseChunkDir) + "/" + fileId + "/chunk_" + to_string(chunkIndex);
+}
+
+bool chunkExists (const char* baseChunkDir, const char* fileId, int chunkIndex) {
+    if (chunkIndex < 0) return false;
+    return filesystem::exists(getChunkPath(baseChunkDir, fileId, chunkIndex));
 }
