@@ -7,6 +7,7 @@ int main() {
     const char* baseChunkDir = "data/chunks";
     const char* fileId = "file1";
     size_t chunkSize = 512*1024;
+    const char* outputPath = "data/reconstructed.txt";
 
     int chunkCount = splitFileIntoChunks(inputPath, baseChunkDir, fileId, chunkSize);
     if (chunkCount == -1) {
@@ -15,10 +16,12 @@ int main() {
     }
     cout << "Chunks created: " << chunkCount << endl;
 
-    cout << "Chunk 0 Path: " << getChunkPath(baseChunkDir, fileId, 0) << endl;
-    cout << "Chunk 0 exists: " << chunkExists(baseChunkDir, fileId, 0) << endl;
-    cout << "Chunk 99 exists: " << chunkExists(baseChunkDir, fileId, 99) << endl;
-    cout << "Chunk -1 exists: " << chunkExists(baseChunkDir, fileId, -1) << endl;
+    if (!mergeChunks(baseChunkDir, fileId, chunkCount, outputPath)) {
+        cerr << "Reconstruction failed" << endl;
+        return -1;
+    }
+    cout << "Reconstruction successful" << endl;
+    cout << "Output file: " << outputPath << endl; 
 
     return 0;
 

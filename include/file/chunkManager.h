@@ -20,3 +20,10 @@ bool chunkExists (
     const char* fileId,
     int chunkIndex
 );
+
+bool mergeChunks (
+    const char* baseChunkDir,
+    const char* fileId,
+    int totalChunks,
+    const char* outputPath
+);
