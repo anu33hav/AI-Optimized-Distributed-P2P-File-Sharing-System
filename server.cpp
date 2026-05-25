@@ -1,3 +1,5 @@
+#include <file/fileTransfer.h>
+#include <network/socketUtils.h>
 #include <iostream>
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -55,6 +57,7 @@ int main() {
         close(serverSocketFd);
         return 1;
     }
+
 
     /* // 06: receive data
     // consider TCP is water pipe

@@ -37,7 +37,7 @@ int main() {
 
     // 04: connect to server
     if (connect(clientSocketFd, (sockaddr*)&serverAddress, sizeof(serverAddress)) == -1) {
-        cerr << "Client to server connection failed" << endl;
+        cerr << "Client to inet_ptonserver connection failed" << endl;
         close(clientSocketFd);
         return 1;
     }
