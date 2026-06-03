@@ -1,74 +1,79 @@
-#include <file/fileTransfer.h>
-#include <network/socketUtils.h>
+#include "file/fileTransfer.h"
 #include <fstream>
 #include <iostream>
-#include <unistd.h>
 #include <sys/socket.h>
-
+#include "network/socketUtils.h"
 using namespace std;
 
-long long sendFile(int clientSocketFd, const char* filePath) {
-    
-    ifstream inputFile(filePath, ios::binary);
+long long sendFile(int socketFd, const char* inputPath) {
+
+    // 01: open file in read mode
+    ifstream inputFile(inputPath, ios::binary);
     if (!inputFile) {
-        cerr << "Failed to open file" << endl;
-        close(clientSocketFd);
+        cerr << "Failed to open inputFile" << endl;
         return -1;
+
     }
 
-    const size_t BUFFER_SIZE = 4096;
-    char readFileBuffer[BUFFER_SIZE];
-    
-    long long totalBytesSent = 0;
-
+    // 02: read till eof
+    long long sendFileByte = 0;
+    const int BUFFER_SIZE = 4096;
     while (inputFile) {
-        inputFile.read(readFileBuffer, BUFFER_SIZE);
 
-        streamsize bytesReadFromFileBuffer = inputFile.gcount();
+        char readBuffer[BUFFER_SIZE];
+        // read file
+        inputFile.read(readBuffer, BUFFER_SIZE);
+        // how much bytes it read
+        streamsize byteRead = inputFile.gcount();
 
-        if (bytesReadFromFileBuffer > 0) {
-            ssize_t bytesSentToServer = sendAll(clientSocketFd, readFileBuffer, bytesReadFromFileBuffer);
-            
-            if (bytesSentToServer == -1) {
-                close(clientSocketFd);
-                return -1;
+        if (byteRead > 0) {
+            ssize_t byteSend = sendAll(socketFd, readBuffer, byteRead);
+            if (byteSend == -1) {
+                cerr << "failed to send data" << endl;
+                break;
             }
 
-            totalBytesSent += bytesReadFromFileBuffer;
+            sendFileByte += byteRead;
         }
     }
 
-    return totalBytesSent;
+    // 03: close file
+    inputFile.close();
+
+    return sendFileByte;
 }
 
-long long receiveFile(int serverToClientSocketFd, const char* outputPath) {
+long long recvFile(int socketFd, const char* outputPath) {
 
+    // 01: open output file
     ofstream outputFile(outputPath, ios::binary);
     if (!outputFile) {
-        cerr << "Failed to open output file" << endl;
-        close(serverToClientSocketFd);
+        cerr << "Failed to outputFile" << endl;
         return -1;
     }
 
-    const size_t BUFFER_SIZE = 4096;
-    char writeFileBuffer[BUFFER_SIZE];
-    
-    long long totalBytesReceived = 0;
+    // 02: write in file
+    long long receiveFileByte = 0;
+    const int BUFFER_SIZE = 4096;
     while (true) {
-        ssize_t bytesReceivedForFile = recv(serverToClientSocketFd, writeFileBuffer, sizeof(writeFileBuffer), 0);
-
-        if (bytesReceivedForFile == -1) {
-            cerr << "Received failed" << endl;
-            return -1;
+        char writeBuffer[BUFFER_SIZE];
+        ssize_t byteReceive = recv(socketFd, writeBuffer, BUFFER_SIZE, 0);
+        if (byteReceive == -1) {
+            cerr << "Failed to recv file" << endl;
+            break;
         }
-        else if (bytesReceivedForFile == 0) {
-            cerr << "Client closed connection" << endl;
+        else if (byteReceive == 0) {
+            cerr << "Client disconnected" << endl;
             break;
         }
 
-        outputFile.write(writeFileBuffer, bytesReceivedForFile);
-        totalBytesReceived += bytesReceivedForFile;
+        // write in file
+        outputFile.write(writeBuffer, byteReceive);
+        receiveFileByte += byteReceive;
     }
 
-    return totalBytesReceived;
+    // 03: close file
+    outputFile.close();
+
+    return receiveFileByte;
 }

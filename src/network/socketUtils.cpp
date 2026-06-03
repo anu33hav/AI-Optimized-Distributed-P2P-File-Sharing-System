@@ -1,43 +1,43 @@
-#include <network/socketUtils.h>
+#include "network/socketUtils.h"
 #include <sys/socket.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
 #include <iostream>
+#include <netinet/in.h>
 #include <unistd.h>
+#include <arpa/inet.h>
 using namespace std;
 
-int createServerSocket(int serverPort) {
-    // 01: server socket creation
+int createServerSocket(const int port) {
+
+    // 01: create server socket
     int serverSocketFd = socket(AF_INET, SOCK_STREAM, 0);
     if (serverSocketFd == -1) {
-        cerr  << "Server socket creation failed" << endl;
-        return -1;
-    }
-    // 02: reuse the same ip + port immediately after restart
-    int opt = 1; // enable
-    if (setsockopt (serverSocketFd, SOL_SOCKET, SO_REUSEADDR,
-        &opt, sizeof(opt)) < 0) {
-        cerr << "setsockopt failed" << endl;
-        close(serverSocketFd);
+        cerr << "Failed to create server Socket" << endl;
         return -1;
     }
 
-    // 03: prepare server address
+    // 02: prepare address for server
     sockaddr_in serverAddress{};
-    serverAddress.sin_family = AF_INET; // IPv4
-    serverAddress.sin_addr.s_addr = INADDR_ANY; // accepts from its own wifi, ethernet, any interface || serverAddress.sin_addr.s_addr is actual ip number [unit32_t]
-    serverAddress.sin_port = htons(serverPort);
+    serverAddress.sin_family = AF_INET;
+    serverAddress.sin_port = htons(port);
+    serverAddress.sin_addr.s_addr = INADDR_ANY;
 
-    // 04: bind server address to server socket
-    if (bind(serverSocketFd, (sockaddr*)&serverAddress, sizeof(serverAddress)) == -1) {
-        cerr << "Bind failed" << endl;
+    int opt = 1;
+    if (setsockopt (serverSocketFd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) == -1) {
+        cerr << "Failed to resuse same socket" << endl;
         close(serverSocketFd);
         return -1;
     }
 
-    // 05: listen on server socket
+    // 03: bind
+    if (bind(serverSocketFd, (sockaddr*) &serverAddress, sizeof(serverAddress)) == -1) {
+        cerr << "Failed to bind" << endl;
+        close(serverSocketFd);
+        return -1;
+    }
+
+    // 04: listen
     if (listen(serverSocketFd, 5) == -1) {
-        cerr << "Listen failed" << endl;
+        cerr << "Failed to listen" << endl;
         close(serverSocketFd);
         return -1;
     }
@@ -46,10 +46,10 @@ int createServerSocket(int serverPort) {
 }
 
 int acceptClient(int serverSocketFd) {
-    cout << "Server waiting for client...." << endl;
+
     int serverToClientSocketFd = accept(serverSocketFd, nullptr, nullptr);
     if (serverToClientSocketFd == -1) {
-        cerr << "Accept failed" << endl;
+        cerr << "Failed to accept clients" << endl;
         close(serverSocketFd);
         return -1;
     }
@@ -57,27 +57,28 @@ int acceptClient(int serverSocketFd) {
     return serverToClientSocketFd;
 }
 
-int connectToServer(const char* serverIp, int serverPort) {
+int connectToServer(const char* ip, const int port) {
 
-    // 01: create client socket
+    // 01: create socket
     int clientSocketFd = socket(AF_INET, SOCK_STREAM, 0);
     if (clientSocketFd == -1) {
-        cerr << "Client Socket creation failed" << endl;
+        cerr << "FAiled to create client socket" << endl;
+        return -1;
     }
 
-    // 02: prepare server address 
-    sockaddr_in serverAddress{};
+    // 02: prepare address
+    sockaddr_in serverAddress;
     serverAddress.sin_family = AF_INET;
-    serverAddress.sin_port = htons(serverPort);
-    if (inet_pton(AF_INET, serverIp, &serverAddress.sin_addr) <= 0) { // convertion and also used for assign ip
-        cerr << "Invalid server IP address" << endl;
+    serverAddress.sin_port = htons(port);
+    if (inet_pton(AF_INET, ip, &serverAddress.sin_addr) <= 0) {
+        cerr << "Failed to convert IP address" << endl;
         close(clientSocketFd);
         return -1;
     }
 
-    // 03: connect client to server
-    if (connect(clientSocketFd, (sockaddr*)&serverAddress, sizeof(serverAddress)) == -1) {
-        cerr << "Connection failed" << endl;
+    // 03: connect to server
+    if (connect(clientSocketFd, (sockaddr*) &serverAddress, sizeof(serverAddress)) == -1) {
+        cerr << "failed to connect with server" << endl;
         close(clientSocketFd);
         return -1;
     }
@@ -85,30 +86,27 @@ int connectToServer(const char* serverIp, int serverPort) {
     return clientSocketFd;
 }
 
-ssize_t sendAll(int clientSocketFd, const char* readFileBuffer, size_t bytesReadFromFileBuffer) {
-    size_t totalSent = 0;
-
-    while (totalSent < bytesReadFromFileBuffer) {
-        ssize_t bytesSentToServer = send(clientSocketFd, readFileBuffer + totalSent, bytesReadFromFileBuffer - totalSent, 0);
-    
-        if (bytesSentToServer == -1) {
-            cerr << "send failed" << endl;
-            close(clientSocketFd);
-            return -1;
-        }
-        if (bytesSentToServer == 0) {
-            cerr << "internal problem failed to send file data" << endl;
-            close(clientSocketFd);
-            return -1;
-        }
-
-        totalSent += bytesSentToServer;
-    }
-
-    return totalSent;
-
-}
-
 void closeSocket(int socketFd) {
     close(socketFd);
+}
+
+ssize_t sendAll(int socketFd, const char* buffer, int byteRead) {
+    ssize_t byteSent = 0;
+    // send till whole byteRead sent
+    while (byteSent < byteRead) {
+
+        ssize_t byteSend = send(socketFd, buffer + byteSent, byteRead - byteSent, 0);
+        if (byteSend == -1) {
+            cerr << "Failed to send file" << endl;
+            return -1;
+        }
+        else if (byteSend == 0) {
+            cerr << "Internal problem to send file" << endl;
+            return -1;
+        }
+
+        byteSent += byteSend;
+    }
+
+    return byteSent;
 }

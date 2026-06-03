@@ -1,113 +1,116 @@
-#include <file/chunkManager.h>
-#include <fstream>
+#include "file/chunkManager.h"
 #include <iostream>
+#include <fstream>
 #include <filesystem>
 #include <vector>
 using namespace std;
 
 int splitFileIntoChunks(const char* inputPath, const char* baseChunkDir, const char* fileId, size_t chunkSize) {
 
-    // 01: open file
+    // open file
     ifstream inputFile(inputPath, ios::binary);
     if (!inputFile) {
-        cerr << "Failed to open input file for chunking" << endl;
+        cerr << "Failed to open inputFile" << endl;
         return -1;
     }
 
-    // 02: create dir for chunks, if it already exists nothing happens
-    // filesystem::create_directories(chunkDir);
-    string fileChunkDir = string(baseChunkDir) + "/" + fileId;
-    filesystem::create_directories(fileChunkDir);
-    
-    // 03: make it input chunks
-    vector<char> buffer(chunkSize);
+    // create chunk dir
+    filesystem::create_directories(string(baseChunkDir) + "/" + fileId);
+
+    // make chunks
+    vector<char> readBuffer(chunkSize);
     int chunkIndex = 0;
-    while (true) {
-        // read the file
-        inputFile.read(buffer.data(), chunkSize);
-        streamsize bytesRead = inputFile.gcount(); // bcz last chunk may be smaller
-        if (bytesRead <= 0) break; // eof check
+    while (inputFile) {
+        
+        // read file
+        inputFile.read(readBuffer.data(), chunkSize);
+        streamsize byteRead = inputFile.gcount();
+        if (byteRead <= 0) {
+            break;
+        }
 
-        // create chunnk file name
-        // string chunkPath = string(chunkDir) + "/chunk_" + to_string(chunkIndex); // chunks/chunk_0
+        // open output file
         string chunkPath = getChunkPath(baseChunkDir, fileId, chunkIndex);
-
-        // open chunk file
         ofstream chunkFile(chunkPath, ios::binary);
         if (!chunkFile) {
-            cerr << "Failed to create chunk file: " << chunkPath << endl;
-            return -1;
+            cerr << "Failed to open chunkFile: " << chunkPath << endl;
+            break;
         }
 
-        // write in chunkFile
-        chunkFile.write(buffer.data(), bytesRead);
+        // write in chunk
+        chunkFile.write(readBuffer.data(), byteRead);
         if (!chunkFile) {
-            cerr << "Failed to write chunk file: " << chunkPath << endl;
-            return -1;
+            cerr << "Failed to write chunkFile: " << chunkPath << endl;
+            chunkFile.close();
+            break;
         }
+
+        // close the chunkFile
+        chunkFile.close();
 
         chunkIndex++;
     }
 
+    inputFile.close();
     return chunkIndex;
 }
 
-string getChunkPath (const char* baseChunkDir, const char* fileId, int chunkIndex) {
-    return string(baseChunkDir) + "/" + fileId + "/chunk_" + to_string(chunkIndex);
+string getChunkPath(const char* baseChunkDir, const char* fileId, int chunkIndex) {
+    return string(baseChunkDir) + "/" + string(fileId) + "/chunk_" + to_string(chunkIndex);
 }
 
-bool chunkExists (const char* baseChunkDir, const char* fileId, int chunkIndex) {
+bool chunkExists(const char* baseChunkDir, const char* fileId, int chunkIndex) {
     if (chunkIndex < 0) return false;
     return filesystem::exists(getChunkPath(baseChunkDir, fileId, chunkIndex));
 }
 
-bool mergeChunks (const char* baseChunkDir, const char* fileId, int totalChunks, const char* outputPath) {
-
+bool mergeChunks(const char* baseChunkDir, const char* fileId, int totalChunks, const char* outputPath) {
+    
     if (totalChunks < 0) return false;
 
-    // open file to write
+    // open output file
     ofstream outputFile(outputPath, ios::binary);
     if (!outputFile) {
-        cerr << "Failed to open output file for reconstruction" << endl;
+        cerr << "Failed to open output file" << endl;
         return false;
     }
 
     const size_t BUFFER_SIZE = 4096;
-    vector<char> buffer(BUFFER_SIZE);
-
-    // iterate on each chunk
+    vector<char> readBuffer(BUFFER_SIZE);
+    // traverse on each chunk
     for (int chunkIndex = 0; chunkIndex < totalChunks; chunkIndex++) {
-
-        // check if chunk exists
+        
+        // chunk exists or not
         if (!chunkExists(baseChunkDir, fileId, chunkIndex)) {
-            cerr << "Missing chunk: " << chunkIndex << endl;
+            cerr << "chunk doesnt exists" << endl;
             return false;
         }
-
-        // open file
+        
+        // open chunk file
         string chunkPath = getChunkPath(baseChunkDir, fileId, chunkIndex);
         ifstream chunkFile(chunkPath, ios::binary);
         if (!chunkFile) {
-            cerr << "Failed to open chunk: " << chunkIndex << endl;
+            cerr << "Failed to open chunkFile" << endl;
             return false;
         }
 
-        // write into outputfile
+        // extract till eof
         while (chunkFile) {
-            // read from file and copying it into buffer
-            chunkFile.read(buffer.data(), BUFFER_SIZE);
-            streamsize bytesRead = chunkFile.gcount();
+            // read file
+            chunkFile.read(readBuffer.data(), BUFFER_SIZE);
+            streamsize byteRead = chunkFile.gcount();
 
-            if (bytesRead > 0) {
-                outputFile.write(buffer.data(), bytesRead);
+            // write in output file
+            if (byteRead > 0) {
+                outputFile.write(readBuffer.data(), byteRead);
                 if (!outputFile) {
-                    cerr << "Failed while writing output file" << endl;
+                    cerr << "Write Failed" << endl;
                     return false;
                 }
             }
         }
     }
 
-    // successfully merge
+    // all done
     return true;
 }

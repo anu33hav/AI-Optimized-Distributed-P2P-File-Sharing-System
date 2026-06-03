@@ -1,0 +1,30 @@
+#pragma once
+#include <cstddef>
+#include <string>
+#include <vector>
+
+struct ChunkMetadata {
+    int chunkIndex;
+    std::string chunkPath;
+    long long chunkSize;
+    ChunkMetadata() = default;
+    ChunkMetadata(int chunkIndex, const std::string& chunkPath, long long chunkSize)
+    : chunkIndex(chunkIndex), chunkPath(chunkPath), chunkSize(chunkSize) {};
+};
+
+struct FileMetadata {
+    std::string fileId;
+    std::string fileName;
+    long long fileSize;
+    std::size_t chunkSize;
+    int totalChunks;
+    std::vector<ChunkMetadata> chunks;
+    FileMetadata() = default;
+    FileMetadata(const std::string &fileId, const std::string &fileName, long long fileSize, std::size_t chunkSize, int totalChunks)
+    : fileId(fileId), fileName(fileName), fileSize(fileSize), chunkSize(chunkSize), totalChunks(totalChunks) {};
+};
+
+bool addFileMetadata(const FileMetadata &metadata);
+const FileMetadata* getFileMetadata(const std::string& fileId);
+bool hasFileMetadata(const std::string& fileId);
+void printFileMetadata(const std::string& fileId);
