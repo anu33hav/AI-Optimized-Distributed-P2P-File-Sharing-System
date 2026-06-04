@@ -2,6 +2,7 @@
 #include <iostream>
 #include "file/metadataManager.h"
 #include <filesystem>
+#include "file/protocol.h"
 using namespace std;
 
 bool buildAndStoreMetadata(const char* inputPath, const char* baseChunkDir, const char* fileId, size_t chunkSize, int chunkCount);
@@ -23,6 +24,12 @@ int main() {
         cerr << "Pipeline test failed" << endl;
         return -1;
     }
+
+    cout << buildConnectMessage("peer1");
+    cout << buildRequestMessage("file1", 2);
+    cout << buildChunkMessage("file1", 2, "Hello radian");
+    cout << buildErrorMessage("not_found");
+    cout << buildErrorMessage("outOfBound");
 
     return 0;
 }
