@@ -1,6 +1,7 @@
 #pragma once
 #include <string>
 
+// for setting only these options are allowed
 enum class MessageType {
     CONNECT,
     REQUEST,
