@@ -1,4 +1,4 @@
-#include "file/protocolParser.h"
+#include "protocol/protocolParser.h"
 #include <iostream>
 #include <string>
 #include <sstream>
@@ -100,7 +100,7 @@ ParsedMessage parseMessage(const string &rawMessage) {
 
         string errorText;
         getline(iss, errorText);
-        if (!errorText.empty() && errorText.front()) {
+        if (!errorText.empty() && errorText.front() == ' ') {
             errorText.erase(0, 1);
         }
 

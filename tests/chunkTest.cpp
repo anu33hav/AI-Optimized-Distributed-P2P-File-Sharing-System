@@ -2,7 +2,7 @@
 #include <iostream>
 #include "file/metadataManager.h"
 #include <filesystem>
-#include "file/protocol.h"
+#include "protocol/protocol.h"
 using namespace std;
 
 bool buildAndStoreMetadata(const char* inputPath, const char* baseChunkDir, const char* fileId, size_t chunkSize, int chunkCount);
