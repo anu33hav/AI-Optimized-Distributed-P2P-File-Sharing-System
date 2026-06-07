@@ -26,7 +26,7 @@ ParsedMessage parseMessage(const string &rawMessage) {
 
     // set command
     string command;
-    iss >> command; // store from iss to command
+    if (!(iss >> command)) return result; // store from iss to command
     result.command = command;
 
     // for CONNECT
@@ -66,25 +66,25 @@ ParsedMessage parseMessage(const string &rawMessage) {
 
         string fileId;
         string chunkText;
-        string data;
-        if (!(iss >> fileId >> chunkText)) return result;
+        string chunkSizeText;
+        if (!(iss >> fileId >> chunkText >> chunkSizeText)) return result;
 
         try {
             result.chunkId = stoi(chunkText);
+            result.chunkSize = stoi(chunkSizeText);
         }
         catch (...) {
             return result;
         }
 
-        string payload;
-        getline(iss, payload); // iss >> payload only read till space, newline, 00
-        if (!payload.empty() && payload.front() == ' ') {
-            payload.erase(0, 1); // erase first space
-        }
+        // string payload;
+        // getline(iss, payload); // iss >> payload only read till space, newline, 00
+        // if (!payload.empty() && payload.front() == ' ') {
+        //     payload.erase(0, 1); // erase first space
+        // }
 
         result.type = MessageType::CHUNK;
         result.fileId = fileId;
-        result.payload = payload;
         result.valid = true;
         return result;
     }
@@ -114,7 +114,6 @@ ParsedMessage parseMessage(const string &rawMessage) {
 }
 
 string messageTypeToString(MessageType type) {
-
     if (type == MessageType::CONNECT) return "CONNECT";
     else if (type == MessageType::REQUEST) return "REQUEST";
     else if(type == MessageType::CHUNK) return "CHUNK";

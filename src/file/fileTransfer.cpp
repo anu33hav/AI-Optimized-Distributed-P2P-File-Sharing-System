@@ -17,10 +17,10 @@ long long sendFile(int socketFd, const char* inputPath) {
 
     // 02: read till eof
     long long sendFileByte = 0;
-    const int BUFFER_SIZE = 4096;
-    while (inputFile) {
+    const size_t BUFFER_SIZE = 4096;
+    char readBuffer[BUFFER_SIZE];
 
-        char readBuffer[BUFFER_SIZE];
+    while (inputFile) {
         // read file
         inputFile.read(readBuffer, BUFFER_SIZE);
         // how much bytes it read

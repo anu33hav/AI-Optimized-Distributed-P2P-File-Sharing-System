@@ -8,6 +8,6 @@ struct PeerConfig {
 };
 
 
-bool startPeerServer(const PeerConfig &config);
-bool connectToPeer(const std::string &ip, int port);
-bool requestChunkFromPeer(const std::string &ip, int port, const std::string &fileId, int chunkId);
+bool startPeerServer(const PeerConfig &config); // server side
+bool connectToPeer(const std::string &ip, int port); // client side
+bool requestChunkFromPeer(const PeerConfig &config,  const std::string &ip, int port, const std::string &fileId, int chunkId); // client side

@@ -27,7 +27,7 @@ int main() {
 
     cout << buildConnectMessage("peer1");
     cout << buildRequestMessage("file1", 2);
-    cout << buildChunkMessage("file1", 2, "Hello radian");
+    cout << buildChunkMessage("file1", 2, 1024);
     cout << buildCompleteMessage();
     cout << buildErrorMessage("outOfBound");
 

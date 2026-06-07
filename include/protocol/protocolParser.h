@@ -1,20 +1,13 @@
 #pragma once
 #include <string>
-
-enum class MessageType {
-    CONNECT,
-    REQUEST,
-    CHUNK,
-    COMPLETE,
-    ERROR,
-    UNKNOWN
-};
+#include "protocol/protocol.h"
 
 struct ParsedMessage {
     MessageType type = MessageType::UNKNOWN;
     std::string command;
     std::string fileId;
     int chunkId = -1;
+    std::size_t chunkSize = 0;
     std::string payload;
     bool valid = false;
 };
