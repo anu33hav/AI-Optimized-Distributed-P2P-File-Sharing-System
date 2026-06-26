@@ -34,22 +34,29 @@ bool startPeerServer(const PeerConfig &config) { // server side
 
     cout << "Peer " << config.peerId << " waiting on port " << config.port << endl;
 
-    // accept another peer
-    int serverToClientSocketFd = acceptClient(serverSocketFd);
-    if (serverToClientSocketFd == -1) {
-        close(serverSocketFd);
-        return false;
+    // look for another peer also
+    while (true) {
+        // accept another peer
+        int serverToClientSocketFd = acceptClient(serverSocketFd);
+        if (serverToClientSocketFd == -1) {
+            close(serverSocketFd);
+            return false;
+        }
+
+        // need to handle the peer request
+        bool requestFromPeer = handlePeerRequest(serverToClientSocketFd, config);
+        
+        // close socket
+        closeSocket(serverToClientSocketFd);
+        
+        if (!requestFromPeer) break;
     }
 
-    // need to handle the peer request
-    bool requestFromPeer = handlePeerRequest(serverToClientSocketFd, config);
-
-    // close sockets
-    closeSocket(serverToClientSocketFd);
+    // close socketet
     closeSocket(serverSocketFd);
 
     // all done
-    return requestFromPeer;
+    return true;
 }
 
 bool connectToPeer(const string &ip, int port) { // client side - use to check heartbeat
@@ -102,6 +109,33 @@ bool requestChunkFromPeer(const PeerConfig &config, const string &ip, int port, 
     bool received = receiveChunkData(clientSocketFd, outputPath, header.chunkSize);
     closeSocket(clientSocketFd);
     return received;
+}
+
+bool downloadFileFromPeer(const  PeerConfig &config,  const std::string &ip, int port, const std::string &fileId, int totalChunks, const std::string &outputFilePath) {
+    
+    // check for vald chunkcount
+    if (totalChunks < 0) return false;
+
+    // req for each chunks 
+    for (int chunkId = 0; chunkId < totalChunks; chunkId++) {
+        if (!requestChunkFromPeer(config, ip, port, fileId, chunkId)) {
+            cerr << "Failed to reconstruct chunk " << chunkId << endl;
+            return false;
+        }
+    }
+
+    // check for reconstructed exists
+    filesystem::create_directories(config.reconstructedDir);
+    string reconstructedPath = config.reconstructedDir + "/" + fileId + ".txt";
+
+    // merge chunks
+    if (!mergeChunks(config.downloadDir.c_str(), fileId.c_str(), totalChunks, outputFilePath.c_str())) {
+        cerr << "Failed to reconstruct file" << endl;
+        return false;
+    }
+
+    // all good
+    return true;
 }
 
 bool handlePeerRequest(int serverToClientSocketFd, const PeerConfig &config) { // serverside
