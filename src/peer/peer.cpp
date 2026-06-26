@@ -17,7 +17,16 @@ bool sendChunkFileInBuffers(int serverToClientSocketFd, const string &chunkPath)
 
 bool receiveChunkData(int clientSocketFd, const string &outputPath, size_t chunkSize);
 
+// peer storage check
+bool ensurePeerStorageLayout(const PeerConfig& config);
+string findServableChunkPath(const PeerConfig &config, const string &fileId, int chunkId);
+
+string findServableChunkPath(const PeerConfig &config, const string &fileId, int chunkId);
+
 bool startPeerServer(const PeerConfig &config) { // server side
+
+    // make peer structure
+    if (!ensurePeerStorageLayout(config)) return false;
 
     // creeate peer serversocket
     int serverSocketFd = createServerSocket(config.port);
@@ -87,9 +96,12 @@ bool requestChunkFromPeer(const PeerConfig &config, const string &ip, int port, 
         return false;
     }
 
-    string outputPath = getChunkPath(config.baseChunkDir.c_str(), fileId.c_str(), chunkId);
+    string outputPath = getChunkPath(config.downloadDir.c_str(), fileId.c_str(), chunkId);
+    filesystem::create_directories(filesystem::path(outputPath).parent_path());
 
-    return receiveChunkData(clientSocketFd, outputPath, header.chunkSize);
+    bool received = receiveChunkData(clientSocketFd, outputPath, header.chunkSize);
+    closeSocket(clientSocketFd);
+    return received;
 }
 
 bool handlePeerRequest(int serverToClientSocketFd, const PeerConfig &config) { // serverside
@@ -127,15 +139,15 @@ bool handlePeerRequest(int serverToClientSocketFd, const PeerConfig &config) { /
 
 bool serveRequestedChunk(int serverToClientSocketFd, const PeerConfig &config, const std::string &fileId, int chunkId) {
     
+    // find chunk Path
+    string chunkPath = findServableChunkPath(config, fileId, chunkId);
     // check if chunk exists or not
-    if (!chunkExists(config.baseChunkDir.c_str(), fileId.c_str(), chunkId)) {
+    if (chunkPath.empty()) {
         string errorMsg = buildErrorMessage("chunk_not_found");
         sendAll(serverToClientSocketFd, errorMsg.c_str(), errorMsg.size());
         return false;
     }
 
-    // get chunk path
-    string chunkPath = getChunkPath(config.baseChunkDir.c_str(), fileId.c_str(), chunkId);
     size_t chunkSize = filesystem::file_size(chunkPath);
 
     // prepare response and send -> buildChunkMessage want data at once, cant do that 
@@ -201,4 +213,41 @@ bool receiveChunkData(int clientSocketFd, const string &outputPath, size_t chunk
 
     // all good
     return true;
+}
+
+bool ensurePeerStorageLayout(const PeerConfig& config) {
+    
+    try {
+        if (!config.localRootDir.empty()) {
+            filesystem::create_directories(config.localRootDir);
+        }
+        if (!config.chunkDir.empty()) {
+            filesystem::create_directories(config.chunkDir);
+        }
+        if (!config.downloadDir.empty()) {
+            filesystem::create_directories(config.downloadDir);
+        }
+        if (!config.reconstructedDir.empty()) {
+            filesystem::create_directories(config.reconstructedDir);
+        }
+    }
+    catch (filesystem::filesystem_error &err) {
+        cerr << "failed to create peer directory" << err.what() << endl;
+        return false;
+    }
+
+    return true;
+}
+
+string findServableChunkPath(const PeerConfig &config, const string &fileId, int chunkId) {
+    
+    // check upload path
+    string uploadPath = getChunkPath(config.chunkDir.c_str(), fileId.c_str(), chunkId);
+    if (filesystem::exists(uploadPath)) return uploadPath;
+
+    // not find upload path then check in downloadPath
+    string downloadPath = getChunkPath(config.downloadDir.c_str(), fileId.c_str(), chunkId);
+    if (filesystem::exists(downloadPath)) return downloadPath;
+
+    return string();
 }

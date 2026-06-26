@@ -4,7 +4,11 @@
 struct PeerConfig {
     std::string peerId;
     int port;
-    std::string baseChunkDir;
+
+    std::string localRootDir;
+    std::string chunkDir;
+    std::string downloadDir;
+    std::string reconstructedDir;
 };
 
 

@@ -6,7 +6,12 @@ int main() {
     PeerConfig config;
     config.peerId = "peer1";
     config.port = 9001;
-    config.baseChunkDir = "data/chunks";
+    config.localRootDir = "data/peers/peer1";
+    config.chunkDir = "data/peers/peer1/chunks";
+    config.downloadDir = "data/peers/peer1/downloads";
+    config.reconstructedDir = "data/peers/peer1/reconstructed";
+
+
 
     if (!startPeerServer(config)) {
         cerr << "Peer server failed" << endl;
