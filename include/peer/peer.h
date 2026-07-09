@@ -11,8 +11,9 @@ struct PeerConfig {
     std::string reconstructedDir;
 };
 
-
 bool startPeerServer(const PeerConfig &config); // server side
 bool connectToPeer(const std::string &ip, int port); // client side
 bool requestChunkFromPeer(const PeerConfig &config,  const std::string &ip, int port, const std::string &fileId, int chunkId); // client side
 bool downloadFileFromPeer(const  PeerConfig &config,  const std::string &ip, int port, const std::string &fileId, int totalChunks, const std::string &outputPath);
+
+bool registerPeerWithService(const PeerConfig &config, const std::string &peerIp, const std::string &serviceIp, int servicePort);

@@ -8,6 +8,8 @@
 #include "file/chunkManager.h"
 #include <fstream>
 #include <filesystem>
+#include <set>
+#include <vector>
 using namespace std;
 
 
@@ -284,4 +286,92 @@ string findServableChunkPath(const PeerConfig &config, const string &fileId, int
     if (filesystem::exists(downloadPath)) return downloadPath;
 
     return string();
+}
+
+
+void scanDirectory(const string &folder, set<string> &fileIds) {
+
+    // if folder empty or didnt exists 
+    if (folder.empty()) return;;
+    if (!filesystem::exists(folder)) return;
+
+    for (const auto &entry : filesystem::directory_iterator(folder)) {
+        if (entry.is_directory()) {
+            string folderName = entry.path().filename().string();
+            fileIds.insert(folderName);
+        }
+    }
+}
+
+vector<string> collectSharedFiles(const PeerConfig &config) {
+    
+    set<string> fileIds; // dont want duplicate file name
+
+    scanDirectory(config.chunkDir, fileIds);
+    scanDirectory(config.downloadDir, fileIds);
+
+    return vector<string> (fileIds.begin(), fileIds.end());
+}
+
+string buildRegisterBody(const PeerConfig &config, const string &peerIp) {
+    
+    auto files = collectSharedFiles(config);
+
+    ostringstream oss;
+    oss << "{";
+    oss << "\"peerId\":\"" << config.peerId << "\",";
+    oss << "\"ip\":\"" << peerIp << "\",";
+    oss << "\"port\":" << config.port << ",";
+    oss << "\"files\":[";
+    for (size_t i = 0; i < files.size(); i++) {
+        if (i > 0) oss << ","; // add comma to after first file
+        oss << "\"" << files[i] << "\"";
+    }
+
+    oss << "]";
+    oss << "}";
+
+    return oss.str();
+}
+
+bool registerPeerWithService(const PeerConfig &config, const std::string &peerIp, const std::string &serviceIp, int servicePort) {
+
+    // connect peer to tracker
+    int clientSocketFd = connectToServer(serviceIp.c_str(), servicePort);
+    if (clientSocketFd == -1) return false;
+
+    // json body to send to tracker
+    string body = buildRegisterBody(config, peerIp);
+
+    // create a big string for http request
+    ostringstream request;
+    request << "POST /register HTTP/1.1\r\n";
+    request << "Host: " << serviceIp << ":" << servicePort << "\r\n";
+    request << "Content-Type: application/json\r\n";
+    request << "Content-Length: " << body.size() << "\r\n";
+    request << "Connection: close\r\n\r\n"; // blank line tells header is closed
+    request << body;
+
+    string requestText = request.str();
+    if (sendAll(clientSocketFd, requestText.c_str(), (int)requestText.size()) == -1) {
+        closeSocket(clientSocketFd);
+        return false;
+    }
+
+    string response;
+    char buffer[1024];
+    while (true) {
+        ssize_t n = recv(clientSocketFd, buffer, sizeof(buffer), 0);
+        if (n < 0) {
+            closeSocket(clientSocketFd);
+            return false;
+        }
+        if (n == 0) {
+            break;
+        }
+        response.append(buffer, (size_t)n);
+    }
+
+    closeSocket(clientSocketFd);
+    return response.find("200 OK") != string::npos;
 }

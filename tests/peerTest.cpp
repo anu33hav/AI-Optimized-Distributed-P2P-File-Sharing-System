@@ -12,6 +12,10 @@ int main() {
     config.reconstructedDir = "data/peers/peer1/reconstructed";
 
 
+    if (!registerPeerWithService(config, "127.0.0.1", "127.0.0.1", 8080)) {
+        cerr << "Peer registration failed" << endl;
+        return -1;
+    }
 
     if (!startPeerServer(config)) {
         cerr << "Peer server failed" << endl;
