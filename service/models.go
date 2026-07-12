@@ -15,3 +15,7 @@ type RegisterRequest struct {
 	Port    int    `json:"port"`
 	Files    []string    `json:"files"`
 }
+
+type HeartbeatRequest struct {
+	PeerId string `json:"peerId"`
+}

@@ -63,3 +63,28 @@ func filePeersHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(peerForFile(fileId)) // sends peers twith that have fileId
 }
+
+
+func heartbeatHandler(w http.ResponseWriter, r *http.Request) {
+	// check if correct post method
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+
+	// read the jbody and convert it into json
+	var req HeartbeatRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+	
+	// update the peer lastseen, online
+	if !touchPeer(req.PeerId) {
+		http.Error(w, "peer not found", http.StatusNotFound)
+		return
+	}
+
+	w.Header().Set("Content-type", "application/json") // tells the client the response is json
+	_ = json.NewEncoder(w).Encode(map[string] string{"status": "ok"}) // convert map into json then send {"status": "ok"}
+}

@@ -17,3 +17,5 @@ bool requestChunkFromPeer(const PeerConfig &config,  const std::string &ip, int 
 bool downloadFileFromPeer(const  PeerConfig &config,  const std::string &ip, int port, const std::string &fileId, int totalChunks, const std::string &outputPath);
 
 bool registerPeerWithService(const PeerConfig &config, const std::string &peerIp, const std::string &serviceIp, int servicePort);
+
+bool sendHeartbeatToService(const PeerConfig &config, const std::string &serviceIp, int servicePort);

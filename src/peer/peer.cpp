@@ -292,7 +292,7 @@ string findServableChunkPath(const PeerConfig &config, const string &fileId, int
 void scanDirectory(const string &folder, set<string> &fileIds) {
 
     // if folder empty or didnt exists 
-    if (folder.empty()) return;;
+    if (folder.empty()) return;
     if (!filesystem::exists(folder)) return;
 
     for (const auto &entry : filesystem::directory_iterator(folder)) {
@@ -370,6 +370,56 @@ bool registerPeerWithService(const PeerConfig &config, const std::string &peerIp
             break;
         }
         response.append(buffer, (size_t)n);
+    }
+
+    closeSocket(clientSocketFd);
+    return response.find("200 OK") != string::npos;
+}
+
+
+string buildHeartbeatBody(const PeerConfig &config) {
+    return "{\"peerId\":\"" + config.peerId + "\"}";
+}
+
+bool sendHeartbeatToService(const PeerConfig &config, const std::string &serviceIp, int servicePort) {
+
+    // connect to service
+    int clientSocketFd = connectToServer(serviceIp.c_str(), servicePort);
+    if (clientSocketFd == -1) return false;
+
+    // convert into json
+    string body = buildHeartbeatBody(config);
+
+    // convert into POST req
+    ostringstream request;
+    request << "POST /heartbeat HTTP/1.1\r\n";
+    request << "Host: " << serviceIp << ":" << servicePort << "\r\n";
+    request << "Content-Type: application/json\r\n";
+    request << "Content-Length: " << body.size() << "\r\n";
+    request << "Connection: close\r\n\r\n";
+    request << body;
+
+    // convert into string and send
+    string requestText = request.str();
+    if (sendAll(clientSocketFd, requestText.c_str(), (int)requestText.size()) == -1) {
+        closeSocket(clientSocketFd);
+        return false;
+    }
+
+    // prepare response
+    string response;
+    char buffer[1024];
+    while (true) {
+        ssize_t n = recv(clientSocketFd, buffer, sizeof(buffer), 0);
+        if (n < 0) { // failed
+            closeSocket(clientSocketFd);
+            return false;
+        }
+        if (n == 0) { // no response
+            break;
+        }
+        // get response
+        response.append(buffer, (size_t)n); 
     }
 
     closeSocket(clientSocketFd);

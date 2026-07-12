@@ -8,6 +8,7 @@ import (
 func main() {
 	http.HandleFunc("/health", healthHandler) // if someone req /health thn call healthHandler
 	http.HandleFunc("/register", registerHandler)
+	http.HandleFunc("/heartbeat", heartbeatHandler)
 	http.HandleFunc("/peers", peersHandler)
 	http.HandleFunc("/files", filePeersHandler)
 

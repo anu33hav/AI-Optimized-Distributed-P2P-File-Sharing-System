@@ -1,6 +1,8 @@
 package main
 
-import "sync"
+import ("sync" 
+		"time"
+		)
 
 var (
 	peerStore = make(map[string] PeerInfo)
@@ -47,4 +49,20 @@ func peerForFile(fileId string) [] PeerInfo {
 	}
 
 	return result
+}
+
+func touchPeer(peerId string) bool {
+	storeMu.Lock()
+	defer storeMu.Unlock()
+
+	peer, ok := peerStore[peerId]
+	if !ok { // check if its exists in map or not
+		return false;
+	}
+
+	// assigning lastseen and online
+	peer.LastSeen = time.Now().Unix()
+	peer.Online = true
+	peerStore[peerId] = peer
+	return true
 }

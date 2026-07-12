@@ -1,6 +1,18 @@
 #include "peer/peer.h"
 #include <iostream>
+#include <thread>
+#include <chrono>
 using namespace std;
+
+void heartbeat(PeerConfig config) {
+    
+    while (true) {
+        if (!sendHeartbeatToService(config, "127.0.0.1", 8080)) {
+            cerr << "heartbeat failed" << endl;
+        }
+        this_thread::sleep_for(chrono::seconds(5));
+    }
+}
 
 int main() {
     PeerConfig config;
@@ -17,10 +29,15 @@ int main() {
         return -1;
     }
 
+    thread heartbeatThread(heartbeat, config);
+    heartbeatThread.detach();
+
     if (!startPeerServer(config)) {
         cerr << "Peer server failed" << endl;
         return -1;
     }
+
+
 
     return 0;
 }
