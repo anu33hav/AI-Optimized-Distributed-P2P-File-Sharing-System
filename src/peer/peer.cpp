@@ -25,6 +25,10 @@ string findServableChunkPath(const PeerConfig &config, const string &fileId, int
 
 string findServableChunkPath(const PeerConfig &config, const string &fileId, int chunkId);
 
+string extractHttpBody(const string &response);
+string extractJsonStringField(const string &objectText, const string &key);
+bool extractJsonIntfield(const string &objectText, const string &key, int &value);
+
 bool startPeerServer(const PeerConfig &config) { // server side
 
     // make peer structure
@@ -424,4 +428,136 @@ bool sendHeartbeatToService(const PeerConfig &config, const std::string &service
 
     closeSocket(clientSocketFd);
     return response.find("200 OK") != string::npos;
+}
+
+
+bool requestPeersForFileService(const std::string &serviceIp, int servicePort, const std::string &fileId, std::vector<PeerEndpoint> &peers) {
+    
+    // want new peers vector alsways, dont want to prev peers data
+    peers.clear();
+
+    // connect to tracker
+    int clientSocketFd = connectToServer(serviceIp.c_str(), servicePort);
+    if (clientSocketFd == -1) return false;
+
+    // build request
+    ostringstream request;
+    request << "GET /files?fileId=" << fileId << " HTTP/1.1\r\n";
+    request << "Host: " << serviceIp << ":" << servicePort << "\r\n";
+    request << "Connection: close\r\n\r\n";
+    // send this request
+    string requestText = request.str();
+    if (sendAll(clientSocketFd, requestText.c_str(), (int)requestText.size()) == -1) {
+        closeSocket(clientSocketFd);
+        return false;
+    }
+
+    // get response
+    string response;
+    char buffer[1024];
+    while (true) {
+        ssize_t n = recv(clientSocketFd, buffer, sizeof(buffer), 0);
+        if (n < 0) {
+            closeSocket(clientSocketFd);
+            return false;
+        }
+        if (n == 0) {
+            break;
+        }
+        response.append(buffer, (size_t)n);
+    }
+
+    // close socket after work
+    closeSocket(clientSocketFd);
+
+    // not get ok response
+    if (response.find("200 OK") == string::npos) {
+        return false;
+    }
+
+    // HTTP/1.1 200 OK
+    // Content-Type: application/json
+    // [{"peerId":"peer1","ip":"127.0.0.1","port":9001}]
+    string body = extractHttpBody(response);
+    if (body.empty()) {
+        return true;
+    }
+
+    // parse json like obj
+    size_t pos = 0;
+    while (true) {
+        // find start of the json
+        size_t objStart = body.find('{', pos);
+        if (objStart == string::npos) break;
+        // find end of the json
+        size_t objEnd = body.find('}', objStart);
+        if (objEnd == string::npos) break;
+
+        // get obj then assign into PeerEndPoint obj
+        string objectText = body.substr(objStart, objEnd-objStart+1);
+        PeerEndpoint peer;
+        int port = 0;
+        peer.peerId = extractJsonStringField(objectText, "peerId");
+        peer.ip = extractJsonStringField(objectText, "ip");
+
+        if (!peer.peerId.empty() && !peer.ip.empty() && extractJsonIntfield(objectText, "port", port) && port > 0) {
+            peer.port = port;
+            peers.push_back(peer);
+        }
+
+        pos = objEnd + 1;
+    }
+
+    return true;
+}
+
+string extractHttpBody(const string &response) {
+    size_t bodyStart = response.find("\r\n\r\n");
+    // not found
+    if (bodyStart == string::npos) {
+        return string();
+    }
+
+    // found
+    return response.substr(bodyStart+4);
+}
+
+string extractJsonStringField(const string &objectText, const string &key) { // peerId and ip
+    // {"peerId":"peer1","ip":"127.0.0.1","port":9001} + key="peerId" -> "peer1"
+    // {"peerId":"peer1","ip":"127.0.0.1","port":9001} + key="ip" -> "127.0.0.1"
+    string needle = "\"" + key + "\":\""; // /" == "
+
+    size_t start = objectText.find(needle);
+    if (start == string::npos) return string();
+
+    start += needle.size();
+    size_t end = objectText.find('"', start);
+    if (end == string::npos) return string();
+
+    return objectText.substr(start, end-start);
+}
+
+bool extractJsonIntfield(const string &objectText, const string &key, int &value) { // for port
+    
+    // find key
+    string needle = "\"" + key + "\":";
+    size_t start = objectText.find(needle);
+    if (start == string::npos) return false;
+
+    start += needle.size();
+    size_t end = start;
+    while (end < objectText.size() && isdigit(objectText[(int)end])) {
+        end++;
+    }
+    if (end == start) return false;
+
+    // try assigning value to port = value
+    try {
+        value = stoi(objectText.substr(start, end-start));
+    }
+    catch (...) {
+        return false;
+    }
+
+    return true;
 }

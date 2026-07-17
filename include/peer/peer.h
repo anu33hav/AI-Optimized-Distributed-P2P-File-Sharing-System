@@ -1,5 +1,6 @@
 #pragma once
 #include <string>
+#include <vector>
 
 struct PeerConfig {
     std::string peerId;
@@ -11,6 +12,12 @@ struct PeerConfig {
     std::string reconstructedDir;
 };
 
+struct PeerEndpoint {
+    std::string peerId;
+    std::string ip;
+    int port;
+};
+
 bool startPeerServer(const PeerConfig &config); // server side
 bool connectToPeer(const std::string &ip, int port); // client side
 bool requestChunkFromPeer(const PeerConfig &config,  const std::string &ip, int port, const std::string &fileId, int chunkId); // client side
@@ -19,3 +26,5 @@ bool downloadFileFromPeer(const  PeerConfig &config,  const std::string &ip, int
 bool registerPeerWithService(const PeerConfig &config, const std::string &peerIp, const std::string &serviceIp, int servicePort);
 
 bool sendHeartbeatToService(const PeerConfig &config, const std::string &serviceIp, int servicePort);
+
+bool requestPeersForFileService(const std::string &serviceIp, int servicePort, const std::string &fileId, std::vector<PeerEndpoint> &peers);

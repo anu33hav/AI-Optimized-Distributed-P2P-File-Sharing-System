@@ -29,8 +29,16 @@ int main() {
         return -1;
     }
 
-    thread heartbeatThread(heartbeat, config);
-    heartbeatThread.detach();
+    // thread heartbeatThread(heartbeat, config);
+    // heartbeatThread.detach();
+
+    vector<PeerEndpoint> peers;
+    if (requestPeersForFileService("127.0.0.1", 8080, "inputA", peers)) {
+        for (const auto &peer : peers) {
+            if (peer.peerId == config.peerId) continue;
+            connectToPeer(peer.ip, peer.port);
+        }
+    }
 
     if (!startPeerServer(config)) {
         cerr << "Peer server failed" << endl;
