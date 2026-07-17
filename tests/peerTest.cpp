@@ -4,47 +4,95 @@
 #include <chrono>
 using namespace std;
 
-void heartbeat(PeerConfig config) {
+void heartbeatLoop(PeerConfig config, const string &serviceIp, int servicePort) {
     
     while (true) {
-        if (!sendHeartbeatToService(config, "127.0.0.1", 8080)) {
+        if (!sendHeartbeatToService(config, serviceIp, servicePort)) {
             cerr << "heartbeat failed" << endl;
         }
         this_thread::sleep_for(chrono::seconds(5));
     }
 }
 
-int main() {
+void printPeers(const vector<PeerEndpoint> &peers) {
+    cout << "discovered peers: " << peers.size() << endl;
+    for (const auto &peer : peers) {
+        cout << peer.peerId << " " << peer.ip << " " << peer.port << endl;
+    }
+}
+
+int main(int argc, char *argv[]) {
+
+    if (argc < 5) {
+        cerr << "usage: " << argv[0] << " <peerId> <port> <localRootDir> <fileId> [totalChunks]" << endl;
+        return -1;
+    }
+
+    string peerId = argv[1];
+    int port = stoi(argv[2]);
+    string localRootDir = argv[3];
+    string fileId = argv[4];
+    int totalChunks = (argc >= 6) ? stoi(argv[5]) : 3;
+
     PeerConfig config;
-    config.peerId = "peer1";
-    config.port = 9001;
-    config.localRootDir = "data/peers/peer1";
-    config.chunkDir = "data/peers/peer1/chunks";
-    config.downloadDir = "data/peers/peer1/downloads";
-    config.reconstructedDir = "data/peers/peer1/reconstructed";
+    config.peerId = peerId;
+    config.port = port;
+    config.localRootDir = localRootDir;
+    config.chunkDir = localRootDir + "/chunks";
+    config.downloadDir = localRootDir + "/downloads";
+    config.reconstructedDir = localRootDir + "/reconstructed";
 
+    const string serviceIp = "127.0.0.1";
+    const int servicePort = 8080;
 
-    if (!registerPeerWithService(config, "127.0.0.1", "127.0.0.1", 8080)) {
+    if (!registerPeerWithService(config, serviceIp, serviceIp, servicePort)) {
         cerr << "Peer registration failed" << endl;
         return -1;
     }
 
-    // thread heartbeatThread(heartbeat, config);
-    // heartbeatThread.detach();
+    thread hbThread(heartbeatLoop, config, serviceIp, servicePort);
+    hbThread.detach();
+
+    thread serverThread([&]() {
+        if (!startPeerServer(config)) {
+            cerr << "peer server failed" << endl;
+        }
+    });
+    serverThread.detach();
+
+    this_thread::sleep_for(chrono::seconds(1));
 
     vector<PeerEndpoint> peers;
-    if (requestPeersForFileService("127.0.0.1", 8080, "inputA", peers)) {
-        for (const auto &peer : peers) {
-            if (peer.peerId == config.peerId) continue;
-            connectToPeer(peer.ip, peer.port);
-        }
-    }
-
-    if (!startPeerServer(config)) {
-        cerr << "Peer server failed" << endl;
+    if (!requestPeersForFileService(serviceIp, servicePort, fileId, peers)) {
+        cerr << "failed to get peers from tracker" << endl;
         return -1;
     }
 
+    printPeers(peers);
+
+    bool downloaded = false;          
+    for (const auto &peer : peers) {
+        if (peer.peerId == config.peerId) continue;
+
+        cout << "trying peer " << peer.peerId << " at " << peer.ip << ":" << peer.port << endl;
+
+        string outputPath = config.reconstructedDir + "/" + fileId + ".txt";
+        if (downloadFileFromPeer(config, peer.ip, peer.port, fileId, totalChunks, outputPath)) {
+            cout << "download and reconstruction successful" << endl;
+            downloaded = true;
+            break;
+        }
+
+        cout << "download failed from this peer, trying next" << endl;
+    }
+
+    if (!downloaded) {
+        cerr << "no peer could serve the file" << endl;
+        return -1;
+    }
+    while (true) {
+        this_thread::sleep_for(chrono::seconds(10));
+    }
 
 
     return 0;
