@@ -55,7 +55,7 @@ bool startPeerServer(const PeerConfig &config) { // server side
         // close socket
         closeSocket(serverToClientSocketFd);
         
-        if (!requestFromPeer) break;
+        if (!requestFromPeer) continue; // dont kill the whole server because one request was bad
     }
 
     // close socketet
