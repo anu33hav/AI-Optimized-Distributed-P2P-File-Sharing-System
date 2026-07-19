@@ -10,6 +10,8 @@
 #include <filesystem>
 #include <set>
 #include <vector>
+#include <mutex>
+#include <thread>
 using namespace std;
 
 
@@ -556,6 +558,111 @@ bool extractJsonIntfield(const string &objectText, const string &key, int &value
         value = stoi(objectText.substr(start, end-start));
     }
     catch (...) {
+        return false;
+    }
+
+    return true;
+}
+
+
+
+vector<PeerEndpoint> filterUsablePeers(const PeerConfig &config, const vector<PeerEndpoint> &peers) {
+
+    vector<PeerEndpoint> usable;
+    set<string> seen;
+
+    for (const auto &peer : peers) {
+
+        // the peer requested for file have this some file chunks
+        if (peer.peerId == config.peerId) continue;
+        // not valid ip or port
+        if (peer.ip.empty() || peer.port <= 0) continue;
+
+        // create ip + port string
+        string key = peer.ip + ":" + to_string(peer.port);
+        // already seen dont, process again
+        if (seen.count(key)) continue;
+
+        seen.insert(key);
+        usable.push_back(peer);
+    }
+
+    return usable;
+}
+
+bool localChunkAlreadyExists(const PeerConfig &config, const string &fileId, int chunkId) {
+    
+    // if chunk exists in downloadDir or chunkDir
+    if (chunkExists(config.downloadDir.c_str(), fileId.c_str(), chunkId)
+        || chunkExists(config.chunkDir.c_str(), fileId.c_str(), chunkId)) return true;
+
+
+    // not found chunk
+    return false;
+}
+
+
+bool downloadFileFromMuliplePeers(const PeerConfig &config, const std::vector<PeerEndpoint> &peers, const std::string &fileId, int totalChunks, const std::string &outputFilePath) {
+
+    // check valid chunk count
+    if (totalChunks <= 0) return false;
+
+    // valid count
+    // filter peers, no duplicate, no invalid ip+port, no self
+    vector<PeerEndpoint> usablePeers = filterUsablePeers(config, peers);
+    if (usablePeers.empty()) {
+        cerr << "No usable peers found" << endl;
+        return false;
+    }
+
+    // first check the missing chunks
+    vector<int> missingChunks;
+    for (int chunkId = 0; chunkId < totalChunks; chunkId++) {
+
+        // already exists
+        if (localChunkAlreadyExists(config, fileId, chunkId)) {
+            cout << "Skipping chunk " << chunkId << "because it already exists" << endl;
+            continue;
+        }
+
+        // not exists
+        missingChunks.push_back(chunkId);
+    }
+
+    // req for missing chunks
+    mutex failedMutex;
+    vector<int> failedChunks;
+    vector<thread> workers;
+
+    for (size_t i = 0; i < missingChunks.size(); i++) {
+
+        int chunkId = missingChunks[i];
+        PeerEndpoint peer = usablePeers[i % usablePeers.size()];
+
+        workers.emplace_back([&, chunkId, peer] () { // use all varible in this func by reference, copy, copy
+
+            cout << "Chunk " << chunkId << " assigned to " << peer.peerId << " " << peer.ip << ":" << peer.port << endl;
+
+            // request chunk from peet
+            bool ok = requestChunkFromPeer(config, peer.ip, peer.port, fileId, chunkId);
+            // if not got
+            if (!ok) {
+                lock_guard<mutex> lock(failedMutex);
+                failedChunks.push_back(chunkId);
+            }
+        });
+    }
+
+    // pause main and wait for thread to execute
+    for (auto &worker : workers) {
+        worker.join();
+    }
+
+    // create reconstructed dir
+    filesystem::create_directories(config.reconstructedDir);
+    // try to merge all the chunks
+    if (!mergeChunks(config.downloadDir.c_str(), fileId.c_str(), totalChunks, outputFilePath.c_str())) {
+        cerr << "FAiled to reconstruct file" << endl;
         return false;
     }
 
