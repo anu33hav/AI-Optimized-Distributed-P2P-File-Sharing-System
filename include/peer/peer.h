@@ -18,6 +18,13 @@ struct PeerEndpoint {
     int port;
 };
 
+enum class ChunkDownloadStatus {
+    NOT_STARTED,
+    IN_PROGRESS,
+    DONE,
+    FAILED
+};
+
 bool startPeerServer(const PeerConfig &config); // server side
 bool connectToPeer(const std::string &ip, int port); // client side
 bool requestChunkFromPeer(const PeerConfig &config,  const std::string &ip, int port, const std::string &fileId, int chunkId); // client side
@@ -29,4 +36,4 @@ bool sendHeartbeatToService(const PeerConfig &config, const std::string &service
 
 bool requestPeersForFileService(const std::string &serviceIp, int servicePort, const std::string &fileId, std::vector<PeerEndpoint> &peers);
 
-bool downloadFileFromMuliplePeers(const PeerConfig &config, const std::vector<PeerEndpoint> &peers, const std::string &fileId, int totalChunks, const std::string &outputFilePath);
+bool downloadFileFromMultiplePeers(const PeerConfig &config, const std::vector<PeerEndpoint> &peers, const std::string &fileId, int totalChunks, const std::string &outputFilePath);

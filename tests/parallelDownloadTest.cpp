@@ -79,7 +79,7 @@ int runDownloaderPeer(const string &peerId, int port, const string &rootDir, con
 
     string outputPath = config.reconstructedDir + "/" + fileId + ".txt";
 
-    if (!downloadFileFromMuliplePeers(config, peers, fileId, totalChunks, outputPath)) {
+    if (!downloadFileFromMultiplePeers(config, peers, fileId, totalChunks, outputPath)) {
         cerr << "parallel download failed" << endl;
         return -1;
     }

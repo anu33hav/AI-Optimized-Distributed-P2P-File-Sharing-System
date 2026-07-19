@@ -31,6 +31,14 @@ string extractHttpBody(const string &response);
 string extractJsonStringField(const string &objectText, const string &key);
 bool extractJsonIntfield(const string &objectText, const string &key, int &value);
 
+bool localChunkAlreadyExists(const PeerConfig &config, const string &fileId, int chunkId);
+vector<PeerEndpoint> filterUsablePeers(const PeerConfig &config, const vector<PeerEndpoint> &peers);
+
+void printChunkStatuses(const vector<ChunkDownloadStatus> &chunkStatus);
+bool allChunksDone(const vector<ChunkDownloadStatus> &chunkStatus);
+string chunkStatusToString(ChunkDownloadStatus status);
+
+
 bool startPeerServer(const PeerConfig &config) { // server side
 
     // make peer structure
@@ -427,7 +435,12 @@ bool sendHeartbeatToService(const PeerConfig &config, const std::string &service
         // get response
         response.append(buffer, (size_t)n); 
     }
-
+enum class ChunkDownloadStatus {
+    NOT_STARTED,
+    IN_PROGRESS,
+    DONE,
+    FAILED
+};
     closeSocket(clientSocketFd);
     return response.find("200 OK") != string::npos;
 }
@@ -565,6 +578,109 @@ bool extractJsonIntfield(const string &objectText, const string &key, int &value
 }
 
 
+bool downloadFileFromMultiplePeers(const PeerConfig &config, const std::vector<PeerEndpoint> &peers, const std::string &fileId, int totalChunks, const std::string &outputFilePath) {
+
+    // check valid chunk count
+    if (totalChunks <= 0) return false;
+
+    // valid count
+    // filter peers, no duplicate, no invalid ip+port, no self
+    vector<PeerEndpoint> usablePeers = filterUsablePeers(config, peers);
+    if (usablePeers.empty()) {
+        cerr << "No usable peers found" << endl;
+        return false;
+    }
+
+
+    // set all chunk to NOT_STARTED
+    vector<ChunkDownloadStatus> chunkStatus(totalChunks, ChunkDownloadStatus::NOT_STARTED);
+    set<int> requestedChunks; // should be unique
+    mutex stateMutex;
+    vector<thread> workers;
+
+    // first check the missing chunks
+    vector<int> missingChunks;
+    for (int chunkId = 0; chunkId < totalChunks; chunkId++) {
+
+        // already exists
+        if (localChunkAlreadyExists(config, fileId, chunkId)) {
+            // mark chunk status done bc its already exxists
+            chunkStatus[chunkId] = ChunkDownloadStatus::DONE;
+            cout << "Skipping chunk " << chunkId << "because it already exists" << endl;
+            continue;
+        }
+
+        // not exists
+        workers.emplace_back([&, chunkId] () { // use all varible in this func by reference, copy, copy
+
+            // peer assignment
+            PeerEndpoint peer; 
+            {
+                lock_guard<mutex> lock(stateMutex);
+
+                // skip duplicate request
+                if (requestedChunks.count(chunkId)) {
+                    cout << "Skipping duplicate request for chunk: " << chunkId << endl;
+                    return;
+                }
+
+                // not a duplicate request - store
+                requestedChunks.insert(chunkId);
+                // mark status for this particular chunkId to INPROGRESS
+                chunkStatus[chunkId] = ChunkDownloadStatus::IN_PROGRESS;
+
+                // scheduling round robin - load is distributed
+                size_t peerIndex = chunkId % usablePeers.size();
+                peer = usablePeers[peerIndex];
+
+                cout << "Chunk " << chunkId << " assigned to " << peer.peerId << " " << peer.ip << ":" << peer.port << endl;
+            }
+
+
+            // request chunk from peer
+            bool ok = requestChunkFromPeer(config, peer.ip, peer.port, fileId, chunkId);
+            {
+                lock_guard<mutex> lock(stateMutex);
+                // got chunk
+                if (ok) chunkStatus[chunkId] = ChunkDownloadStatus::DONE;
+                else chunkStatus[chunkId] = ChunkDownloadStatus::FAILED;
+            }
+        });
+    }
+
+    // pause main and wait for thread to execute
+    for (auto &worker : workers) {
+        worker.join();
+    }
+
+    // print all the chunkstatus
+    printChunkStatuses(chunkStatus);
+    if (!allChunksDone(chunkStatus)) {
+        cerr << "Not all chunks downloaded. Merge skipped." << endl;
+        return false;
+    }
+
+    // create reconstructed dir
+    filesystem::create_directories(config.reconstructedDir);
+    // try to merge all the chunks
+    if (!mergeChunks(config.downloadDir.c_str(), fileId.c_str(), totalChunks, outputFilePath.c_str())) {
+        cerr << "Failed to reconstruct file" << endl;
+        return false;
+    }
+
+    return true;
+}
+
+bool localChunkAlreadyExists(const PeerConfig &config, const string &fileId, int chunkId) {
+    
+    // if chunk exists in downloadDir or chunkDir
+    if (chunkExists(config.downloadDir.c_str(), fileId.c_str(), chunkId)
+        || chunkExists(config.chunkDir.c_str(), fileId.c_str(), chunkId)) return true;
+
+
+    // not found chunk
+    return false;
+}
 
 vector<PeerEndpoint> filterUsablePeers(const PeerConfig &config, const vector<PeerEndpoint> &peers) {
 
@@ -590,81 +706,38 @@ vector<PeerEndpoint> filterUsablePeers(const PeerConfig &config, const vector<Pe
     return usable;
 }
 
-bool localChunkAlreadyExists(const PeerConfig &config, const string &fileId, int chunkId) {
+void printChunkStatuses(const vector<ChunkDownloadStatus> &chunkStatus) {
     
-    // if chunk exists in downloadDir or chunkDir
-    if (chunkExists(config.downloadDir.c_str(), fileId.c_str(), chunkId)
-        || chunkExists(config.chunkDir.c_str(), fileId.c_str(), chunkId)) return true;
-
-
-    // not found chunk
-    return false;
+    cout << "Chunk status:" << endl;
+    for (size_t i = 0; i < chunkStatus.size(); i++) {
+        cout << "   chunk " << i << ": " << chunkStatusToString(chunkStatus[i]) << endl;
+    }
 }
 
+bool allChunksDone(const vector<ChunkDownloadStatus> &chunkStatus) {
 
-bool downloadFileFromMuliplePeers(const PeerConfig &config, const std::vector<PeerEndpoint> &peers, const std::string &fileId, int totalChunks, const std::string &outputFilePath) {
-
-    // check valid chunk count
-    if (totalChunks <= 0) return false;
-
-    // valid count
-    // filter peers, no duplicate, no invalid ip+port, no self
-    vector<PeerEndpoint> usablePeers = filterUsablePeers(config, peers);
-    if (usablePeers.empty()) {
-        cerr << "No usable peers found" << endl;
-        return false;
-    }
-
-    // first check the missing chunks
-    vector<int> missingChunks;
-    for (int chunkId = 0; chunkId < totalChunks; chunkId++) {
-
-        // already exists
-        if (localChunkAlreadyExists(config, fileId, chunkId)) {
-            cout << "Skipping chunk " << chunkId << "because it already exists" << endl;
-            continue;
+    for (ChunkDownloadStatus status : chunkStatus) {
+        // NOT DONE
+        if (status != ChunkDownloadStatus::DONE) {
+            return false;
         }
-
-        // not exists
-        missingChunks.push_back(chunkId);
     }
 
-    // req for missing chunks
-    mutex failedMutex;
-    vector<int> failedChunks;
-    vector<thread> workers;
-
-    for (size_t i = 0; i < missingChunks.size(); i++) {
-
-        int chunkId = missingChunks[i];
-        PeerEndpoint peer = usablePeers[i % usablePeers.size()];
-
-        workers.emplace_back([&, chunkId, peer] () { // use all varible in this func by reference, copy, copy
-
-            cout << "Chunk " << chunkId << " assigned to " << peer.peerId << " " << peer.ip << ":" << peer.port << endl;
-
-            // request chunk from peet
-            bool ok = requestChunkFromPeer(config, peer.ip, peer.port, fileId, chunkId);
-            // if not got
-            if (!ok) {
-                lock_guard<mutex> lock(failedMutex);
-                failedChunks.push_back(chunkId);
-            }
-        });
-    }
-
-    // pause main and wait for thread to execute
-    for (auto &worker : workers) {
-        worker.join();
-    }
-
-    // create reconstructed dir
-    filesystem::create_directories(config.reconstructedDir);
-    // try to merge all the chunks
-    if (!mergeChunks(config.downloadDir.c_str(), fileId.c_str(), totalChunks, outputFilePath.c_str())) {
-        cerr << "FAiled to reconstruct file" << endl;
-        return false;
-    }
-
+    // all done
     return true;
+}
+
+string chunkStatusToString(ChunkDownloadStatus status) {
+    switch (status) {
+        case ChunkDownloadStatus::NOT_STARTED:
+            return "NOT_STARTED";
+        case ChunkDownloadStatus::IN_PROGRESS:
+            return "IN_PROGRESS";
+        case ChunkDownloadStatus::DONE:
+            return "DONE";
+        case ChunkDownloadStatus::FAILED:
+            return "FAILED";
+    }
+
+    return "UNKNOWN";
 }
