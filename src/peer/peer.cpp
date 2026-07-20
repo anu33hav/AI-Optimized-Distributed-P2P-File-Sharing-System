@@ -622,6 +622,7 @@ bool downloadFileFromMultiplePeers(const PeerConfig &config, const std::vector<P
         workers.emplace_back([&, chunkId] () { // use all varible in this func by reference, copy, copy
 
             // peer assignment
+            size_t startPeerIndex = 0;
             PeerEndpoint peer; 
             {
                 lock_guard<mutex> lock(stateMutex);
@@ -638,15 +639,14 @@ bool downloadFileFromMultiplePeers(const PeerConfig &config, const std::vector<P
                 chunkStatus[chunkId] = ChunkDownloadStatus::IN_PROGRESS;
 
                 // scheduling round robin - load is distributed
-                size_t peerIndex = chunkId % usablePeers.size();
-                peer = usablePeers[peerIndex];
+                startPeerIndex = chunkId % usablePeers.size();
+                const PeerEndpoint &assignedPeer = usablePeers[startPeerIndex];
 
-                cout << "Chunk " << chunkId << " assigned to " << peer.peerId << " " << peer.ip << ":" << peer.port << endl;
+                cout << "Chunk " << chunkId << " initially assigned to " << assignedPeer.peerId << " " << assignedPeer.ip << ":" << assignedPeer.port << endl;
             }
 
-
             // request chunk from peer
-            bool ok = requestChunkFromPeer(config, peer.ip, peer.port, fileId, chunkId);
+            bool ok = requestChunkFromAnyPeer(config, usablePeers, fileId, chunkId, startPeerIndex);
             {
                 lock_guard<mutex> lock(stateMutex);
                 // got chunk
@@ -753,4 +753,37 @@ string chunkStatusToString(ChunkDownloadStatus status) {
     }
 
     return "UNKNOWN";
+}
+
+
+bool requestChunkFromAnyPeer(const PeerConfig &config, const vector<PeerEndpoint> &usablePeers, const string &fileId, int chunkId, size_t startPeerIndex) {
+
+    // any peer exists
+    if (usablePeers.empty()) {
+        cerr << "No usable peers found" << endl;
+        return false;
+    }
+
+    // retry on all peers that have fileId, retry attempt only usablePeers.size()
+    for (size_t attempt = 0; attempt < usablePeers.size(); attempt++) {
+
+        // deciding which peer for retry, 
+        size_t peerIndex = (startPeerIndex + attempt) % usablePeers.size();
+        const PeerEndpoint &peer = usablePeers[peerIndex];
+
+        cout << "Trying chunk " << chunkId << " from " << peer.peerId << " " << peer.ip << ":" << peer.port << endl;
+
+        // got the request from chunk - PASSED
+        if (requestChunkFromPeer(config, peer.ip, peer.port, fileId, chunkId)) {
+            cout << "Chunk " << chunkId << " downloaded from " << peer.peerId << endl;
+            return true;
+        }
+
+        // failed - retry on another chunk
+        cerr << "Chunk " << chunkId << " failed from " << peer.peerId << ", trying next peer" << endl;
+    }
+
+    // all retry attempt failed
+    cerr << "Chunk " << chunkId << " failed from all peers" << endl;
+    return false;
 }
