@@ -92,12 +92,16 @@ bool requestChunkFromPeer(const PeerConfig &config, const string &ip, int port, 
     
     // connect to the server/another peer
     int clientSocketFd = connectToServer(ip.c_str(), port);
-    if (clientSocketFd == -1) return false;
+    if (clientSocketFd == -1) {
+        cerr << "Failed to connect to peer " << ip << ":" << port << " for chunk " << chunkId << endl;
+        return false;
+    }
 
     // build request message to send
     string requestMessage = buildRequestMessage(fileId, chunkId);
     cout << "Sending: " << requestMessage;
     if (sendAll(clientSocketFd, requestMessage.c_str(), requestMessage.size()) == -1) {
+        cerr << "Failed to send request for chunk " << chunkId << " to peer " << ip << ":" << port << endl;
         closeSocket(clientSocketFd);
         return false;
     }
@@ -106,6 +110,7 @@ bool requestChunkFromPeer(const PeerConfig &config, const string &ip, int port, 
     char headerBuffer[1024] = {0};
     ssize_t byteReceived = recv(clientSocketFd, headerBuffer, sizeof(headerBuffer)-1, 0);
     if (byteReceived <= 0) {
+        cerr << "Failed to receive response header for chunk " << chunkId << " from peer " << ip << ":" << port << endl;
         closeSocket(clientSocketFd);
         return false;
     }
@@ -114,7 +119,7 @@ bool requestChunkFromPeer(const PeerConfig &config, const string &ip, int port, 
     // parse the header
     ParsedMessage header = parseMessage(rawHeader);
     if (!header.valid || header.type != MessageType::CHUNK) { // other than chunk
-        cerr << "Invalid response" << endl;
+        cerr << "Invalid response for chunk " << chunkId << " from peer " << ip << ":" << port << ". Raw response: " << rawHeader << endl;
         closeSocket(clientSocketFd);
         return false;
     }
@@ -123,6 +128,9 @@ bool requestChunkFromPeer(const PeerConfig &config, const string &ip, int port, 
     filesystem::create_directories(filesystem::path(outputPath).parent_path());
 
     bool received = receiveChunkData(clientSocketFd, outputPath, header.chunkSize);
+    if (!received) {
+        cerr << "Failed to receive chunk bytes for chunk " << chunkId << " from peer " << ip << ":" << port << endl;
+    }
     closeSocket(clientSocketFd);
     return received;
 }
@@ -642,8 +650,13 @@ bool downloadFileFromMultiplePeers(const PeerConfig &config, const std::vector<P
             {
                 lock_guard<mutex> lock(stateMutex);
                 // got chunk
-                if (ok) chunkStatus[chunkId] = ChunkDownloadStatus::DONE;
-                else chunkStatus[chunkId] = ChunkDownloadStatus::FAILED;
+                if (ok) {
+                    chunkStatus[chunkId] = ChunkDownloadStatus::DONE;
+                }
+                else {
+                    chunkStatus[chunkId] = ChunkDownloadStatus::FAILED;
+                    cerr << "Chunk " << chunkId << " failed from " << peer.peerId << " " << peer.ip << ":" << peer.port << endl;
+                }
             }
         });
     }

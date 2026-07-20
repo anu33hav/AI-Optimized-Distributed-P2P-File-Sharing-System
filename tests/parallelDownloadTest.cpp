@@ -4,8 +4,6 @@
 #include <thread>
 #include <chrono>
 
-
-
 using namespace std;
 
 void heartbeatLoop(PeerConfig config, const string &serviceIp, int servicePort) {
