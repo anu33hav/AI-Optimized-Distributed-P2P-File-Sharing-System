@@ -4,6 +4,8 @@
 #include <netinet/in.h>
 #include <unistd.h>
 #include <arpa/inet.h>
+#include <cerrno>
+#include <cstring>
 using namespace std;
 
 int createServerSocket(const int port) {
@@ -109,4 +111,40 @@ ssize_t sendAll(int socketFd, const char* buffer, int byteRead) {
     }
 
     return byteSent;
+}
+
+
+bool setSocketRecvTimeout(int socketFd, int timeoutSeconds) {
+
+    timeval timeout{};
+    timeout.tv_sec = timeoutSeconds;
+    timeout.tv_usec = 0;
+
+    // set and check for timeout
+    if (setsockopt(socketFd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)) == -1) {
+        cerr << "Failed to set recv timeout: " << strerror(errno) << endl; // set by os convert int to error string, if further error occur it remodify the itself
+        return false;
+    }
+
+    // timeout set
+    return true;
+}
+
+bool setSocketSendTimeout(int socketFd, int timeoutSeconds) {
+
+    timeval timeout{};
+    timeout.tv_sec = timeoutSeconds;
+    timeout.tv_usec = 0;
+
+    // set and check for timeout
+    if (setsockopt(socketFd, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout)) == -1) {
+        cerr << "Failed to set send timeout: " << strerror(errno) << endl;
+        return false;
+    }
+
+    return true;
+}
+
+bool isSocketTimeoutError()  {
+    return errno == EAGAIN || errno == EWOULDBLOCK;
 }

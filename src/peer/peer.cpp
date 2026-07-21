@@ -97,6 +97,16 @@ bool requestChunkFromPeer(const PeerConfig &config, const string &ip, int port, 
         return false;
     }
 
+    // add timout to the socket, recv && send
+    if (!setSocketRecvTimeout(clientSocketFd, 5)) {
+        closeSocket(clientSocketFd);
+        return false;
+    }
+    if (!setSocketSendTimeout(clientSocketFd, 5)) {
+        closeSocket(clientSocketFd);
+        return false;
+    }
+
     // build request message to send
     string requestMessage = buildRequestMessage(fileId, chunkId);
     cout << "Sending: " << requestMessage;
@@ -109,8 +119,19 @@ bool requestChunkFromPeer(const PeerConfig &config, const string &ip, int port, 
     // recv and process Header
     char headerBuffer[1024] = {0};
     ssize_t byteReceived = recv(clientSocketFd, headerBuffer, sizeof(headerBuffer)-1, 0);
-    if (byteReceived <= 0) {
-        cerr << "Failed to receive response header for chunk " << chunkId << " from peer " << ip << ":" << port << endl;
+    if (byteReceived < 0) {
+        if (isSocketTimeoutError()) {
+            cerr << "timeout waiting for chunk response from " << ip << ":"  << port << " for chunk " << chunkId << endl;
+        }
+        else {
+            cerr << "failed to receive chunk response from " << ip << ":" << port << endl;
+        }
+
+        closeSocket(clientSocketFd);
+        return false;
+    }
+    if (byteReceived == 0) {
+        cerr << "peer closed connection before sending chunk response" << endl;
         closeSocket(clientSocketFd);
         return false;
     }
@@ -262,9 +283,22 @@ bool receiveChunkData(int clientSocketFd, const string &outputPath, size_t chunk
         size_t toRead = min(BUFFER_SIZE, remaining);
         ssize_t byteReceived = recv(clientSocketFd, buffer, toRead, 0);
 
-        if (byteReceived <= 0) return false;
+        if (byteReceived < 0) {
+            if (isSocketTimeoutError()) {
+                cerr << "timeout while receiving chunk data" << endl;
+            }
+            else {
+                cerr << "failed while receiving chunk data" << endl;
+            }
 
-        /// write in file
+            return false;
+        }
+        if (byteReceived == 0) {
+            cerr << "peer closed connection while sending chunk data" << endl;
+            return false;
+        }
+
+        // write in file
         outputFile.write(buffer, byteReceived);
         remaining -= byteReceived;
     }
