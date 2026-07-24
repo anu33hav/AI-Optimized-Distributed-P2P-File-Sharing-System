@@ -38,6 +38,11 @@ void printChunkStatuses(const vector<ChunkDownloadStatus> &chunkStatus);
 bool allChunksDone(const vector<ChunkDownloadStatus> &chunkStatus);
 string chunkStatusToString(ChunkDownloadStatus status);
 
+bool loadDownloadState(const PeerConfig &config, const string &fileId, vector<ChunkDownloadStatus> &chunkStatus, int totalChunks);
+bool saveDownloadState(const PeerConfig &config, const string &fileId, const vector<ChunkDownloadStatus> &chunkStatus);
+string getDownloadStatePath(const PeerConfig &config, const string &fileId);
+ChunkDownloadStatus stringToChunkStatus(const string &text);
+
 
 bool startPeerServer(const PeerConfig &config) { // server side
 
@@ -633,9 +638,13 @@ bool downloadFileFromMultiplePeers(const PeerConfig &config, const std::vector<P
         return false;
     }
 
-
     // set all chunk to NOT_STARTED
     vector<ChunkDownloadStatus> chunkStatus(totalChunks, ChunkDownloadStatus::NOT_STARTED);
+    if (!loadDownloadState(config, fileId, chunkStatus, totalChunks)) {
+        cerr << "Failed to load prev download state" << endl;
+        return false;
+    }
+
     set<int> requestedChunks; // should be unique
     mutex stateMutex;
     vector<thread> workers;
@@ -644,11 +653,11 @@ bool downloadFileFromMultiplePeers(const PeerConfig &config, const std::vector<P
     vector<int> missingChunks;
     for (int chunkId = 0; chunkId < totalChunks; chunkId++) {
 
-        // already exists
-        if (localChunkAlreadyExists(config, fileId, chunkId)) {
+        // prev downloaded || already exists
+        if (chunkStatus[chunkId] == ChunkDownloadStatus::DONE || localChunkAlreadyExists(config, fileId, chunkId)) {
             // mark chunk status done bc its already exxists
             chunkStatus[chunkId] = ChunkDownloadStatus::DONE;
-            cout << "Skipping chunk " << chunkId << "because it already exists" << endl;
+            cout << "Skipping chunk " << chunkId << "because it already completed or exists" << endl;
             continue;
         }
 
@@ -657,7 +666,6 @@ bool downloadFileFromMultiplePeers(const PeerConfig &config, const std::vector<P
 
             // peer assignment
             size_t startPeerIndex = 0;
-            PeerEndpoint peer; 
             {
                 lock_guard<mutex> lock(stateMutex);
 
@@ -686,10 +694,11 @@ bool downloadFileFromMultiplePeers(const PeerConfig &config, const std::vector<P
                 // got chunk
                 if (ok) {
                     chunkStatus[chunkId] = ChunkDownloadStatus::DONE;
-                }
+                    saveDownloadState(config, fileId, chunkStatus);
+                } 
                 else {
                     chunkStatus[chunkId] = ChunkDownloadStatus::FAILED;
-                    cerr << "Chunk " << chunkId << " failed from " << peer.peerId << " " << peer.ip << ":" << peer.port << endl;
+                    saveDownloadState(config, fileId, chunkStatus);
                 }
             }
         });
@@ -699,6 +708,9 @@ bool downloadFileFromMultiplePeers(const PeerConfig &config, const std::vector<P
     for (auto &worker : workers) {
         worker.join();
     }
+
+    // save final state
+    saveDownloadState(config, fileId, chunkStatus);
 
     // print all the chunkstatus
     printChunkStatuses(chunkStatus);
@@ -716,17 +728,6 @@ bool downloadFileFromMultiplePeers(const PeerConfig &config, const std::vector<P
     }
 
     return true;
-}
-
-bool localChunkAlreadyExists(const PeerConfig &config, const string &fileId, int chunkId) {
-    
-    // if chunk exists in downloadDir or chunkDir
-    if (chunkExists(config.downloadDir.c_str(), fileId.c_str(), chunkId)
-        || chunkExists(config.chunkDir.c_str(), fileId.c_str(), chunkId)) return true;
-
-
-    // not found chunk
-    return false;
 }
 
 vector<PeerEndpoint> filterUsablePeers(const PeerConfig &config, const vector<PeerEndpoint> &peers) {
@@ -752,6 +753,85 @@ vector<PeerEndpoint> filterUsablePeers(const PeerConfig &config, const vector<Pe
 
     return usable;
 }
+
+bool loadDownloadState(const PeerConfig &config, const string &fileId, vector<ChunkDownloadStatus> &chunkStatus, int totalChunks) {
+    
+    // check invalid totalChunks
+    if (totalChunks <= 0) return false;
+
+    // donwloadPath = statePath
+    string statePath = getDownloadStatePath(config, fileId);
+    if (!filesystem::exists(statePath)) return true;
+
+    // open state file
+    ifstream in(statePath);
+    if (!in) {
+        cerr << "failed to open download state file for reading" << endl;
+        return false;
+    }
+
+    // mark state in chunkStatus
+    int chunkId;
+    string statusText;
+    while (in >> chunkId >> statusText) {
+        // invalid chunk
+        if (chunkId < 0 || chunkId >= totalChunks) continue;
+        // valid chunk - mark the status
+        chunkStatus[chunkId] = stringToChunkStatus(statusText);
+    }
+
+    return true;
+}
+
+string getDownloadStatePath(const PeerConfig &config, const string &fileId) {
+    return config.downloadDir + "/" + fileId +  ".state";
+}
+
+ChunkDownloadStatus stringToChunkStatus(const string &text) {
+
+    if (text == "NOT_STARTED") return ChunkDownloadStatus::NOT_STARTED;
+    if (text == "IN_PROGRESS") return ChunkDownloadStatus::IN_PROGRESS;
+    if (text == "DONE") return ChunkDownloadStatus::DONE;
+    if (text == "FAILED") return ChunkDownloadStatus::FAILED;
+    return ChunkDownloadStatus::NOT_STARTED;
+}
+
+bool localChunkAlreadyExists(const PeerConfig &config, const string &fileId, int chunkId) {
+    
+    // if chunk exists in downloadDir or chunkDir
+    if (chunkExists(config.downloadDir.c_str(), fileId.c_str(), chunkId)
+        || chunkExists(config.chunkDir.c_str(), fileId.c_str(), chunkId)) return true;
+
+
+    // not found chunk
+    return false;
+}
+
+bool saveDownloadState(const PeerConfig &config, const string &fileId, const vector<ChunkDownloadStatus> &chunkStatus) {
+    
+    // try to create downloadd dir
+    try {
+        filesystem::create_directories(config.downloadDir);
+    }
+    catch (...) {
+        cerr << "failed to create downlooad dir for state file" << endl;
+        return false;
+    }
+
+    // open downloaddir file
+    ofstream out(getDownloadStatePath(config, fileId));
+    if (!out) {
+        cerr << "failed to open download state file for writing" << endl;
+        return false;
+    }
+    // save status
+    for (size_t i = 0; i < chunkStatus.size(); i++) {
+        out << i << " " << chunkStatusToString(chunkStatus[i]) << "\n";
+    }
+
+    return true;
+}
+
 
 void printChunkStatuses(const vector<ChunkDownloadStatus> &chunkStatus) {
     
