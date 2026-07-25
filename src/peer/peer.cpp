@@ -43,6 +43,10 @@ bool saveDownloadState(const PeerConfig &config, const string &fileId, const vec
 string getDownloadStatePath(const PeerConfig &config, const string &fileId);
 ChunkDownloadStatus stringToChunkStatus(const string &text);
 
+vector<int> findMissingChunks(const vector<ChunkDownloadStatus> &chunkStatus);
+bool verifyAllChunksComplete(const PeerConfig &config, const string &fileId, const vector<ChunkDownloadStatus> &chunkStatus);
+bool isChunkPresentAndValid(const PeerConfig &config, const string &fileId, int chunkId);
+
 
 bool startPeerServer(const PeerConfig &config) { // server side
 
@@ -649,8 +653,7 @@ bool downloadFileFromMultiplePeers(const PeerConfig &config, const std::vector<P
     mutex stateMutex;
     vector<thread> workers;
 
-    // first check the missing chunks
-    vector<int> missingChunks;
+    // traverse on all chunks
     for (int chunkId = 0; chunkId < totalChunks; chunkId++) {
 
         // prev downloaded || already exists
@@ -716,6 +719,24 @@ bool downloadFileFromMultiplePeers(const PeerConfig &config, const std::vector<P
     printChunkStatuses(chunkStatus);
     if (!allChunksDone(chunkStatus)) {
         cerr << "Not all chunks downloaded. Merge skipped." << endl;
+        return false;
+    }
+
+    // find missing chunks
+    vector<int> missingChunks = findMissingChunks(chunkStatus);
+    if (!missingChunks.empty()) {
+        cerr << "Missing chunks:";
+        for (int chunkId : missingChunks) {
+            cerr << " " << chunkId;
+        }
+        cerr << endl;
+        cerr << "Not all chunks downloaded. Merge skipped." << endl;
+        return false;
+    }
+
+    // verfiy chunks is complete
+    if (!verifyAllChunksComplete(config, fileId, chunkStatus)) {
+        cerr << "Chunk integrity check failed" << endl;
         return false;
     }
 
@@ -869,6 +890,53 @@ string chunkStatusToString(ChunkDownloadStatus status) {
     return "UNKNOWN";
 }
 
+
+vector<int> findMissingChunks(const vector<ChunkDownloadStatus> &chunkStatus) {
+    
+    vector<int> missing;
+    for (size_t i = 0; i < chunkStatus.size(); i++) {
+        // not done, means missing
+        if (chunkStatus[i] != ChunkDownloadStatus::DONE) {
+            missing.push_back((int)i);
+        }
+    }
+
+    return missing;
+}
+
+bool verifyAllChunksComplete(const PeerConfig &config, const string &fileId, const vector<ChunkDownloadStatus> &chunkStatus) {
+    
+    // traverse on all chunks
+    for (size_t i = 0; i < chunkStatus.size(); i++) {
+        // not done
+        if (chunkStatus[i] != ChunkDownloadStatus::DONE) return false;
+        // chunk is present and valid
+        if (!isChunkPresentAndValid(config, fileId, (int)i)) return false;
+    }
+
+    // all valid
+    return true;
+}
+
+bool isChunkPresentAndValid(const PeerConfig &config, const string &fileId, int chunkId) {
+
+    // get path
+    string downloadPath = getChunkPath(config.downloadDir.c_str(), fileId.c_str(), chunkId);
+    string chunkPath = getChunkPath(config.chunkDir.c_str(), fileId.c_str(), chunkId);
+
+    // get chunk path
+    string pathToCheck;
+    if (filesystem::exists(downloadPath)) pathToCheck = downloadPath;
+    else if (filesystem::exists(chunkPath)) pathToCheck = chunkPath;
+    else return false;
+
+    try {
+        return filesystem::file_size(pathToCheck) > 0; // file inc some bytes or non empty
+    }
+    catch (...) {
+        return false;
+    }
+}
 
 bool requestChunkFromAnyPeer(const PeerConfig &config, const vector<PeerEndpoint> &usablePeers, const string &fileId, int chunkId, size_t startPeerIndex) {
 
