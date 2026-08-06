@@ -86,6 +86,23 @@ bool validateChunkMetadata(const FileMetadata &metadata, const char* baseChunkDi
     return true;
 }
 
+bool validateChunkIntegrity(const FileMetadata &metadata) {
+    for (const auto &chunk : metadata.chunks) {
+        string actualHash;
+        if (!computeFileSha256(chunk.chunkPath, actualHash)) {
+            cerr << "failed to hash chunk: " << chunk.chunkPath << endl;
+            return false;
+        }
+
+        if (actualHash != chunk.chunkHash) {
+            cerr << "hash mismatch for chunk " << chunk.chunkIndex << endl;
+            return false;
+        }
+    }
+
+    return true;
+}
+
 bool runPipelineTest(const char *inputPath, const char* baseChunkDir, const char* fileId, size_t chunkSize, const char *outputPath) {
 
     // split file into chunks
@@ -106,6 +123,9 @@ bool runPipelineTest(const char *inputPath, const char* baseChunkDir, const char
 
     // validate chunk metadata
     if (!validateChunkMetadata(*metadata, baseChunkDir)) return false;
+
+    // validate chunk integrity
+    if (!validateChunkIntegrity(*metadata)) return false;
 
     // merge the splitted chunks
     if (!mergeChunks(baseChunkDir, fileId, metadata->totalChunks, outputPath)) return false;
