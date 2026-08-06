@@ -7,9 +7,11 @@ struct ChunkMetadata {
     int chunkIndex;
     std::string chunkPath;
     long long chunkSize;
+    std::string chunkHash;
+
     ChunkMetadata() = default;
-    ChunkMetadata(int chunkIndex, const std::string& chunkPath, long long chunkSize)
-    : chunkIndex(chunkIndex), chunkPath(chunkPath), chunkSize(chunkSize) {};
+    ChunkMetadata(int chunkIndex, const std::string& chunkPath, long long chunkSize, const std::string &chunkHash)
+    : chunkIndex(chunkIndex), chunkPath(chunkPath), chunkSize(chunkSize), chunkHash(chunkHash) {};
 };
 
 struct FileMetadata {

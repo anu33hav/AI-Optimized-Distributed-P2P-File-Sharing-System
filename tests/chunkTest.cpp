@@ -3,6 +3,7 @@
 #include "file/metadataManager.h"
 #include <filesystem>
 #include "protocol/protocol.h"
+#include "file/hashUtils.h"
 using namespace std;
 
 bool buildAndStoreMetadata(const char* inputPath, const char* baseChunkDir, const char* fileId, size_t chunkSize, int chunkCount);
@@ -43,8 +44,14 @@ bool buildAndStoreMetadata(const char* inputPath, const char* baseChunkDir, cons
     for (int chunkIndex = 0; chunkIndex < chunkCount; chunkIndex++) {
         
         string chunkPath = getChunkPath(baseChunkDir, fileId, chunkIndex);
+        // create hash of chunk
+        string chunkHash;
+        if (!computeFileSha256(chunkPath, chunkHash)) {
+            cerr << "failed to hash chunk: " << chunkPath << endl;
+        }
+
         // init. chunk
-        ChunkMetadata chunk(chunkIndex, chunkPath, filesystem::file_size(chunkPath));
+        ChunkMetadata chunk(chunkIndex, chunkPath, filesystem::file_size(chunkPath), chunkHash);
         // store in vector
         metadata.chunks.push_back(chunk);
     }
@@ -94,6 +101,8 @@ bool runPipelineTest(const char *inputPath, const char* baseChunkDir, const char
     // get metadata
     const FileMetadata* metadata = getFileMetadata(fileId);
     if (!metadata) return false;
+
+    printFileMetadata(fileId);
 
     // validate chunk metadata
     if (!validateChunkMetadata(*metadata, baseChunkDir)) return false;

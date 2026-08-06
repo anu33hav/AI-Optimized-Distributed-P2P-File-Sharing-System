@@ -52,6 +52,7 @@ void printFileMetadata(const string &fileId) {
     for (const auto &chunk : metadata->chunks) {
         cout << "Chunk " << chunk.chunkIndex
         << " | Path: " << chunk.chunkPath
-        << " | Size: " << chunk.chunkSize << endl;
+        << " | Size: " << chunk.chunkSize
+        << " | Hash: " << chunk.chunkHash << endl;
     }
 }
