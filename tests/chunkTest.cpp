@@ -107,6 +107,9 @@ bool runPipelineTest(const char *inputPath, const char* baseChunkDir, const char
     // check of input and output file sizze
     if (filesystem::file_size(inputPath) != filesystem::file_size(outputPath)) return false;
 
+    // check whole file hash matches
+    if (!verifyMergedFileHash(fileId, outputPath)) return false;
+
     // all good
     return true;
 }

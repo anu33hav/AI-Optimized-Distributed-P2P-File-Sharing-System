@@ -47,6 +47,7 @@ void printFileMetadata(const string &fileId) {
     cout << "FileId: " << metadata->fileId << endl;
     cout << "File Name: " << metadata->fileName << endl;
     cout << "File Size: " << metadata->fileSize << endl;
+    cout << "File Hash: " << metadata->fileHash << endl;
     cout << "Chunk Size: " << metadata->chunkSize << endl;
     cout << "Total Chunks: " << metadata->totalChunks << endl;
 
@@ -65,10 +66,15 @@ bool buildAndStoreMetadata(const char* inputPath, const char* baseChunkDir, cons
     try {
         // create a metadata
         FileMetadata metadata(fileId, filesystem::path(inputPath).filename().string(), filesystem::file_size(inputPath), chunkSize, chunkCount);
+        // compute hash for whole file
+        if (!computeFileSha256(inputPath, metadata.fileHash)) {
+            cerr << "failed to hash original file: " << inputPath << endl;
+        }
         // for all chunks
         for (int chunkIndex = 0; chunkIndex < chunkCount; chunkIndex++) {
             string chunkPath = getChunkPath(baseChunkDir, fileId, chunkIndex);
-
+            
+            // compute hash for chunk
             string chunkHash;
             if (!computeFileSha256(chunkPath, chunkHash)) {
                 cerr << "failed to hash chunk: " << endl;
@@ -84,4 +90,28 @@ bool buildAndStoreMetadata(const char* inputPath, const char* baseChunkDir, cons
     catch(...) {
         return false;
     }
+}
+
+bool verifyMergedFileHash(const string &fileId, const string &reconstructedPath) {
+
+    const FileMetadata* metadata = getFileMetadata(fileId);
+    if (!metadata) {
+        cerr << "metadata not found for fileId: " << fileId << endl;
+        return false;
+    }
+ 
+    // compute reconstructred hash
+    string reconstructedHash;
+    if (!computeFileSha256(reconstructedPath, reconstructedHash)) {
+        cerr << "failed to hash reconstructred file: " << reconstructedPath << endl;
+        return false;
+    }
+
+    // not match with original
+    if (reconstructedHash != metadata->fileHash) {
+        cerr << "final file hash mismatch for fileId: " << fileId << endl;
+        return false;
+    }
+
+    return true;
 }
