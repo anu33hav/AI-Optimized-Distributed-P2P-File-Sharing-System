@@ -67,7 +67,9 @@ ParsedMessage parseMessage(const string &rawMessage) {
         string fileId;
         string chunkText;
         string chunkSizeText;
+        string chunkHash;
         if (!(iss >> fileId >> chunkText >> chunkSizeText)) return result;
+        if (!(iss >> chunkHash)) return result;
 
         try {
             result.chunkId = stoi(chunkText);
@@ -83,6 +85,7 @@ ParsedMessage parseMessage(const string &rawMessage) {
         //     payload.erase(0, 1); // erase first space
         // }
 
+        result.chunkHash = chunkHash;
         result.type = MessageType::CHUNK;
         result.fileId = fileId;
         result.valid = true;

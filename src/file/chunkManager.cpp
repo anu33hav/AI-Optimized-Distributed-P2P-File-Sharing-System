@@ -3,7 +3,6 @@
 #include <fstream>
 #include <filesystem>
 #include <vector>
-#include "file/hashUtils.h"
 using namespace std;
 
 int splitFileIntoChunks(const char* inputPath, const char* baseChunkDir, const char* fileId, size_t chunkSize) {
@@ -42,15 +41,6 @@ int splitFileIntoChunks(const char* inputPath, const char* baseChunkDir, const c
         chunkFile.write(readBuffer.data(), byteRead);
         if (!chunkFile) {
             cerr << "Failed to write chunkFile: " << chunkPath << endl;
-            chunkFile.close();
-            break;
-        }
-
-        // hash chunkFile
-        string chunkHash;
-        if (!computeFileSha256(chunkPath, chunkHash)) {
-            cerr << "Failed to hash chunk file: " << chunkPath << endl;
-            // close the chunkFile
             chunkFile.close();
             break;
         }

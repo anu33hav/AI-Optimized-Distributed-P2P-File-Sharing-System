@@ -6,7 +6,6 @@
 #include "file/hashUtils.h"
 using namespace std;
 
-bool buildAndStoreMetadata(const char* inputPath, const char* baseChunkDir, const char* fileId, size_t chunkSize, int chunkCount);
 bool validateChunkMetadata(const FileMetadata &metadata, const char* baseChunkDir);
 bool runPipelineTest(const char *inputPath, const char* baseChunkDir, const char* fileId, size_t chunkSize, const char *outputPath);
 
@@ -28,36 +27,11 @@ int main() {
 
     cout << buildConnectMessage("peer1");
     cout << buildRequestMessage("file1", 2);
-    cout << buildChunkMessage("file1", 2, 1024);
+    cout << buildChunkMessage("file1", 2, 1024, "sample_hash");
     cout << buildCompleteMessage();
     cout << buildErrorMessage("outOfBound");
 
     return 0;
-}
-
-bool buildAndStoreMetadata(const char* inputPath, const char* baseChunkDir, const char* fileId, size_t chunkSize, int chunkCount) {
-
-    // init. filemetadata
-    FileMetadata metadata(fileId, "input.txt", filesystem::file_size(inputPath), chunkSize, chunkCount);
-    
-    // store chunks
-    for (int chunkIndex = 0; chunkIndex < chunkCount; chunkIndex++) {
-        
-        string chunkPath = getChunkPath(baseChunkDir, fileId, chunkIndex);
-        // create hash of chunk
-        string chunkHash;
-        if (!computeFileSha256(chunkPath, chunkHash)) {
-            cerr << "failed to hash chunk: " << chunkPath << endl;
-        }
-
-        // init. chunk
-        ChunkMetadata chunk(chunkIndex, chunkPath, filesystem::file_size(chunkPath), chunkHash);
-        // store in vector
-        metadata.chunks.push_back(chunk);
-    }
-
-    // add in filemetadata
-    return addFileMetadata(metadata);
 }
 
 bool validateChunkMetadata(const FileMetadata &metadata, const char* baseChunkDir) {

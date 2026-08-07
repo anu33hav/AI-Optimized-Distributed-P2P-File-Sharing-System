@@ -10,8 +10,8 @@ string buildRequestMessage(const std::string &fileId, int chunkId) {
     return "REQUEST " + fileId + " " + to_string(chunkId) + "\n";
 }
 
-string buildChunkMessage(const std::string &fileId, int chunkId, size_t chunkSize) {
-    return "CHUNK " + fileId + " " + to_string(chunkId) + " " + to_string(chunkSize) + "\n";
+string buildChunkMessage(const std::string &fileId, int chunkId, size_t chunkSize, const string &chunkHash) {
+    return "CHUNK " + fileId + " " + to_string(chunkId) + " " + to_string(chunkSize) + " " + chunkHash + "\n";
 }
 
 string buildCompleteMessage() {

@@ -1,6 +1,9 @@
 #include <unordered_map>
 #include "file/metadataManager.h"
 #include <iostream>
+#include <filesystem>
+#include "file/chunkManager.h"
+#include "file/hashUtils.h"
 using namespace std;
 
 static unordered_map<string, FileMetadata> metadataStore;
@@ -54,5 +57,31 @@ void printFileMetadata(const string &fileId) {
         << " | Path: " << chunk.chunkPath
         << " | Size: " << chunk.chunkSize
         << " | Hash: " << chunk.chunkHash << endl;
+    }
+}
+
+bool buildAndStoreMetadata(const char* inputPath, const char* baseChunkDir, const char* fileId, size_t chunkSize, int chunkCount) {
+
+    try {
+        // create a metadata
+        FileMetadata metadata(fileId, filesystem::path(inputPath).filename().string(), filesystem::file_size(inputPath), chunkSize, chunkCount);
+        // for all chunks
+        for (int chunkIndex = 0; chunkIndex < chunkCount; chunkIndex++) {
+            string chunkPath = getChunkPath(baseChunkDir, fileId, chunkIndex);
+
+            string chunkHash;
+            if (!computeFileSha256(chunkPath, chunkHash)) {
+                cerr << "failed to hash chunk: " << endl;
+                return false;
+            }
+            // create chunk metadata
+            ChunkMetadata chunk(chunkIndex, chunkPath, filesystem::file_size(chunkPath), chunkHash);
+            metadata.chunks.push_back(chunk);
+        }
+        // add info into metadataStore map
+        return addFileMetadata(metadata);
+    }
+    catch(...) {
+        return false;
     }
 }

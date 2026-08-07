@@ -12,6 +12,7 @@
 #include <vector>
 #include <mutex>
 #include <thread>
+#include "file/hashUtils.h"
 using namespace std;
 
 
@@ -19,7 +20,8 @@ bool handlePeerRequest(int serverToClientSocketFd, const PeerConfig &config); //
 bool serveRequestedChunk(int serverToClientSocketFd, const PeerConfig &config, const std::string &fileId, int chunkId); // handlePeerRequest helper
 bool sendChunkFileInBuffers(int serverToClientSocketFd, const string &chunkPath);
 
-bool receiveChunkData(int clientSocketFd, const string &outputPath, size_t chunkSize);
+bool readChunkHeader(int clientSocketFd, string &headerLine, string &remainder);
+bool receiveChunkData(int clientSocketFd, const string &outputPath, size_t chunkSize, const string &initialPayload, const string &expectedChunkHash);
 
 // peer storage check
 bool ensurePeerStorageLayout(const PeerConfig& config);
@@ -47,6 +49,7 @@ vector<int> findMissingChunks(const vector<ChunkDownloadStatus> &chunkStatus);
 bool verifyAllChunksComplete(const PeerConfig &config, const string &fileId, const vector<ChunkDownloadStatus> &chunkStatus);
 bool isChunkPresentAndValid(const PeerConfig &config, const string &fileId, int chunkId);
 
+bool removeFileIfExists(const string &path);
 
 bool startPeerServer(const PeerConfig &config) { // server side
 
@@ -125,27 +128,13 @@ bool requestChunkFromPeer(const PeerConfig &config, const string &ip, int port, 
         return false;
     }
 
-    // recv and process Header
-    char headerBuffer[1024] = {0};
-    ssize_t byteReceived = recv(clientSocketFd, headerBuffer, sizeof(headerBuffer)-1, 0);
-    if (byteReceived < 0) {
-        if (isSocketTimeoutError()) {
-            cerr << "timeout waiting for chunk response from " << ip << ":"  << port << " for chunk " << chunkId << endl;
-        }
-        else {
-            cerr << "failed to receive chunk response from " << ip << ":" << port << endl;
-        }
-
+    // recv and process header line without losing any chunk bytes that arrive in the same TCP read
+    string rawHeader;
+    string bufferedChunkBytes;
+    if (!readChunkHeader(clientSocketFd, rawHeader, bufferedChunkBytes)) {
         closeSocket(clientSocketFd);
         return false;
     }
-    if (byteReceived == 0) {
-        cerr << "peer closed connection before sending chunk response" << endl;
-        closeSocket(clientSocketFd);
-        return false;
-    }
-    headerBuffer[byteReceived] = '\0';
-    string rawHeader(headerBuffer);
     // parse the header
     ParsedMessage header = parseMessage(rawHeader);
     if (!header.valid || header.type != MessageType::CHUNK) { // other than chunk
@@ -157,7 +146,7 @@ bool requestChunkFromPeer(const PeerConfig &config, const string &ip, int port, 
     string outputPath = getChunkPath(config.downloadDir.c_str(), fileId.c_str(), chunkId);
     filesystem::create_directories(filesystem::path(outputPath).parent_path());
 
-    bool received = receiveChunkData(clientSocketFd, outputPath, header.chunkSize);
+    bool received = receiveChunkData(clientSocketFd, outputPath, header.chunkSize, bufferedChunkBytes, header.chunkHash);
     if (!received) {
         cerr << "Failed to receive chunk bytes for chunk " << chunkId << " from peer " << ip << ":" << port << endl;
     }
@@ -238,8 +227,16 @@ bool serveRequestedChunk(int serverToClientSocketFd, const PeerConfig &config, c
 
     size_t chunkSize = filesystem::file_size(chunkPath);
 
+    // compute string
+    string chunkHash;
+    if (!computeFileSha256(chunkPath, chunkHash)) {
+        string errorMsg = buildErrorMessage("chunk_hash_failed");
+        sendAll(serverToClientSocketFd, errorMsg.c_str(), errorMsg.size());
+        return false;
+    }
+
     // prepare response and send -> buildChunkMessage want data at once, cant do that 
-    string header = buildChunkMessage(fileId, chunkId, chunkSize);
+    string header = buildChunkMessage(fileId, chunkId, chunkSize, chunkHash);
     if (sendAll(serverToClientSocketFd, header.c_str(), header.size()) == -1) {
         return false;
     }
@@ -277,7 +274,7 @@ bool sendChunkFileInBuffers(int serverToClientSocketFd, const string &chunkPath)
     return true;
 }
 
-bool receiveChunkData(int clientSocketFd, const string &outputPath, size_t chunkSize) {
+bool receiveChunkData(int clientSocketFd, const string &outputPath, size_t chunkSize, const string &initialPayload, const string &expectedChunkHash) {
 
     // open outputFile
     ofstream outputFile(outputPath, ios::binary);
@@ -287,6 +284,19 @@ bool receiveChunkData(int clientSocketFd, const string &outputPath, size_t chunk
     const size_t BUFFER_SIZE = 4096;
     char buffer[BUFFER_SIZE];
     size_t remaining = chunkSize;
+
+    // got from header \n last chars
+    if (!initialPayload.empty()) {
+        size_t bytesToWrite = min(remaining, initialPayload.size());
+        // write in output file
+        outputFile.write(initialPayload.data(), (streamsize)bytesToWrite);
+        if (!outputFile) {
+            outputFile.close();
+            removeFileIfExists(outputPath);
+            return false;
+        }
+        remaining -= bytesToWrite;
+    }
 
     while (remaining > 0) {
         size_t toRead = min(BUFFER_SIZE, remaining);
@@ -299,21 +309,92 @@ bool receiveChunkData(int clientSocketFd, const string &outputPath, size_t chunk
             else {
                 cerr << "failed while receiving chunk data" << endl;
             }
-
+            outputFile.close();
+            removeFileIfExists(outputPath);
             return false;
         }
         if (byteReceived == 0) {
             cerr << "peer closed connection while sending chunk data" << endl;
+            outputFile.close();
+            removeFileIfExists(outputPath);
             return false;
         }
 
         // write in file
         outputFile.write(buffer, byteReceived);
-        remaining -= byteReceived;
+        if (!outputFile) {
+            outputFile.close();
+            removeFileIfExists(outputPath);
+            return false;
+        }
+        remaining -= (size_t)byteReceived;
+    }
+    // receive chunk data - close the file
+    outputFile.close();
+
+    // now, copmute the hash
+    string actualHash;
+    if (!expectedChunkHash.empty()) {
+        // compute receive chunk hash
+        if (!computeFileSha256(outputPath, actualHash)) {
+            cerr << "failed to hash download chunk" << endl;
+            removeFileIfExists(outputPath);
+            return false;
+        }
+        // compare receive chunkhash to expectedChunkHash
+        if (actualHash != expectedChunkHash) {
+            cerr << "chunk hash mismatach for " << outputPath << endl;
+            removeFileIfExists(outputPath);
+            return false;
+        }
     }
 
     // all good
     return true;
+}
+
+bool readChunkHeader(int clientSocketFd, string &headerLine, string &remainder) {
+    headerLine.clear();
+    remainder.clear();
+
+    string accumulated;
+    char buffer[1024];
+
+    while (true) {
+        // recv data
+        ssize_t n = recv(clientSocketFd, buffer, sizeof(buffer), 0);
+        // invalid data
+        if (n < 0) {
+            if (isSocketTimeoutError()) {
+                cerr << "timeout waiting for chunk response header" << endl;
+            }
+            else {
+                cerr << "failed to receive chunk response header" << endl;
+            }
+            return false;
+        }
+        if (n == 0) {
+            cerr << "peer closed connection before sending chunk response header" << endl;
+            return false;
+        }
+
+        // valid
+        accumulated.append(buffer, (size_t)n);
+        size_t newlinePos = accumulated.find('\n');
+        if (newlinePos != string::npos) {
+            headerLine = accumulated.substr(0, newlinePos + 1);
+            remainder = accumulated.substr(newlinePos + 1);
+            return true;
+        }
+
+        if (accumulated.size() > 8192) {
+            cerr << "chunk response header too large" << endl;
+            return false;
+        }
+    }
+
+    // not done
+    return false;
 }
 
 bool ensurePeerStorageLayout(const PeerConfig& config) {
@@ -968,4 +1049,17 @@ bool requestChunkFromAnyPeer(const PeerConfig &config, const vector<PeerEndpoint
     // all retry attempt failed
     cerr << "Chunk " << chunkId << " failed from all peers" << endl;
     return false;
+}
+
+bool removeFileIfExists(const string &path) {
+    try {
+        if (filesystem::exists(path)) {
+            return filesystem::remove(path);
+        }
+    }
+    catch (...) {
+        return false;
+    }
+
+    return true;
 }

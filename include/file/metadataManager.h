@@ -30,3 +30,4 @@ bool addFileMetadata(const FileMetadata &metadata);
 const FileMetadata* getFileMetadata(const std::string& fileId);
 bool hasFileMetadata(const std::string& fileId);
 void printFileMetadata(const std::string& fileId);
+bool buildAndStoreMetadata(const char* inputPath, const char* baseChunkDir, const char* fileId, size_t chunkSize, int chunkCount);
