@@ -13,6 +13,7 @@
 #include <mutex>
 #include <thread>
 #include "file/hashUtils.h"
+#include "file/metadataManager.h"
 using namespace std;
 
 
@@ -174,6 +175,12 @@ bool downloadFileFromPeer(const  PeerConfig &config,  const std::string &ip, int
     // merge chunks
     if (!mergeChunks(config.downloadDir.c_str(), fileId.c_str(), totalChunks, outputFilePath.c_str())) {
         cerr << "Failed to reconstruct file" << endl;
+        return false;
+    }
+
+    // verify its hash
+    if (!verifyMergedFileHash(fileId, outputFilePath)) {
+        cerr << "Merged file hash mismatch" << endl;
         return false;
     }
 
@@ -826,6 +833,12 @@ bool downloadFileFromMultiplePeers(const PeerConfig &config, const std::vector<P
     // try to merge all the chunks
     if (!mergeChunks(config.downloadDir.c_str(), fileId.c_str(), totalChunks, outputFilePath.c_str())) {
         cerr << "Failed to reconstruct file" << endl;
+        return false;
+    }
+
+    // verify whether it matched with with original or not
+    if (!verifyMergedFileHash(fileId, outputFilePath)) {
+        cerr << "Merged file hash mismatch" << endl;
         return false;
     }
 
