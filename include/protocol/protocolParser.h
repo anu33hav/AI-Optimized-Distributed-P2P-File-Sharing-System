@@ -8,6 +8,7 @@ struct ParsedMessage {
     std::string fileId;
     int chunkId = -1;
     std::size_t chunkSize = 0;
+    std::string chunkHash;
     std::string payload;
     bool valid = false;
 };
