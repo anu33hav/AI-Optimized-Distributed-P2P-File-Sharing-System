@@ -19,3 +19,8 @@ type RegisterRequest struct {
 type HeartbeatRequest struct {
 	PeerId string `json:"peerId"`
 }
+
+type RedisKVRequest struct {
+	Key    string    `json:"key"`
+	Value    string    `json:"value"`
+}
