@@ -88,3 +88,80 @@ func heartbeatHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-type", "application/json") // tells the client the response is json
 	_ = json.NewEncoder(w).Encode(map[string] string{"status": "ok"}) // convert map into json then send {"status": "ok"}
 }
+
+func redisHealthHandler(w http.ResponseWriter, r *http.Request) {
+	// check if correct req
+	if r.Method != http.MethodGet {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+
+	// ping to redis server
+	if err := redisClient.Ping(redisCtx).Err(); err != nil {
+		http.Error(w, "redis unavailable", http.StatusServiceUnavailable)
+		return
+	}
+
+	// sending json
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]string {
+		"status" : "ok",
+	})
+}
+
+func redisSetHandler(w http.ResponseWriter, r *http.Request) {
+	// check if req is correct
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+
+	// set in redis, req.key -> req.value
+	var req RedisKVRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil { // takes json and store into req and decode it into key value
+		http.Error(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+
+	// check key exists
+	if req.Key == "" {
+		http.Error(w, "missing key", http.StatusBadRequest)
+		return
+	}
+	// store into redis
+	if err := redisSetString(req.Key, req.Value, 0); err != nil { // 0 -> dont expire key
+		http.Error(w, "failed to write redis", http.StatusInternalServerError)
+		return
+	}
+
+	// write status : ok
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string] string{"status": "ok"})
+}
+
+func redisGetHandler(w http.ResponseWriter, r *http.Request) {
+	// check for correct method
+	if r.Method != http.MethodGet {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+
+	key := r.URL.Query().Get("key") // /redis/get?key=hello
+	// check valid key
+	if key == "" {
+		http.Error(w, "missing key", http.StatusBadRequest)
+		return
+	}
+
+	// get val
+	value, err := redisGetString(key)
+	// check for err
+	if err != nil {
+		http.Error(w, "key not found", http.StatusNotFound)
+		return
+	}
+
+	// set to write
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string] string{"key": key, "value": value})
+}
