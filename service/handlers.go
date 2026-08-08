@@ -129,7 +129,7 @@ func redisSetHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// store into redis
-	if err := redisSetString(req.Key, req.Value, 0); err != nil { // 0 -> dont expire key
+	if err := redisSetKeyValString(req.Key, req.Value, 0); err != nil { // 0 -> dont expire key
 		http.Error(w, "failed to write redis", http.StatusInternalServerError)
 		return
 	}
@@ -154,7 +154,7 @@ func redisGetHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// get val
-	value, err := redisGetString(key)
+	value, err := redisGetValString(key)
 	// check for err
 	if err != nil {
 		http.Error(w, "key not found", http.StatusNotFound)

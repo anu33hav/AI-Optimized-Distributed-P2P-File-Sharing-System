@@ -30,15 +30,15 @@ func initRedis() error { // go redis is reachable or not and connect it
 	return redisClient.Ping(redisCtx).Err() // if not reachable then generate Err
 }
 
-func redisSetString(key string, value string, ttl time.Duration) error {
+func redisSetKeyValString(key string, value string, ttl time.Duration) error {
 	return redisClient.Set(redisCtx, key, value, ttl).Err() // store key, value and how much time it will store in redis
 }
 
-func redisGetString(key string) (string, error) {
+func redisGetValString(key string) (string, error) {
 	return redisClient.Get(redisCtx, key).Result()
 }
 
-func redisSetJSON(key string, value any, ttl time.Duration) error {
+func redisSetKeyValJSON(key string, value any, ttl time.Duration) error {
 	valueJson, err := json.Marshal(value) // converts go value into json in string into bytes
 	if err != nil {
 		return err
@@ -47,7 +47,7 @@ func redisSetJSON(key string, value any, ttl time.Duration) error {
 	return redisClient.Set(redisCtx, key, valueJson, ttl).Err()
 }
 
-func redisGetJSON(key string, dest any) error {
+func redisGetValJSON(key string, dest any) error {
 	val, err := redisClient.Get(redisCtx, key).Result()
 	if err != nil {
 		return err
@@ -56,3 +56,37 @@ func redisGetJSON(key string, dest any) error {
 	return json.Unmarshal([]byte(val), dest) // from json in string into bytes to obj
 }
 
+func redisSetKeyValAdd(key string, member string) error {
+	return redisClient.SAdd(redisCtx, key, member).Err() // set add users = {"rahul"}
+}
+
+func redisGetSetValMembers(key string) ([]string, error) {
+	return redisClient.SMembers(redisCtx, key).Result()
+}
+
+func redisExpire(key string, ttl time.Duration) error {
+	return redisClient.Expire(redisCtx, key, ttl).Err() // if key is not present then it will do nothing
+}
+
+func redisScanKeys(pattern string) ([]string, error) {
+
+	var (
+		cursor uint64
+		keys []string
+	)
+
+	for {
+		batch, next, err := redisClient.Scan(redisCtx, cursor, pattern, 100).Result() // cant ask for all record, bc its expensive
+		if err != nil { // may be redis disconnected
+			return nil, err
+		}
+
+		keys = append(keys, batch...) // ... -> take all element inside batch
+		cursor = next
+		if cursor == 0 { // redis will assign thsi to 0 if search is finished
+			break
+		}
+	}
+
+	return keys, nil
+}
