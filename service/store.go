@@ -95,6 +95,8 @@ func removePeerFromFileSets(peerId string, files []string) {
 }
 
 func upsertPeer(peer PeerInfo) {
+
+	// update last seen
 	peer.LastSeen = time.Now().Unix()
 	peer.Online = true
 
@@ -118,7 +120,7 @@ func upsertPeer(peer PeerInfo) {
 
 func listPeers() []PeerInfo {
 
-	// get keys in 100
+	// get peer
 	keys, err := redisScanKeys("peer:*")
 	if (err != nil) {
 		return []PeerInfo{}

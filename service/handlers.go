@@ -41,6 +41,11 @@ func registerHandler(w http.ResponseWriter, r *http.Request) {
 	// store the peer
 	upsertPeer(peer)
 
+	if err := postgresUpsertPeer(peer); err != nil {
+		http.Error(w, "failed to write postgres", http.StatusInternalServerError)
+		return
+	}
+
 	w.Header().Set("Content-Type", "application/json") // i am sending json
 	_ = json.NewEncoder(w).Encode(peer) // convert struct into json and immediately encode this json unto http response w
 	// we can also write 
@@ -82,6 +87,11 @@ func heartbeatHandler(w http.ResponseWriter, r *http.Request) {
 	// update the peer lastseen, online
 	if !touchPeer(req.PeerId) {
 		http.Error(w, "peer not found", http.StatusNotFound)
+		return
+	}
+
+	if err := postgresTouchPeer(req.PeerId); err != nil {
+		http.Error(w, "failed to update postgres", http.StatusInternalServerError)
 		return
 	}
 
@@ -164,4 +174,67 @@ func redisGetHandler(w http.ResponseWriter, r *http.Request) {
 	// set to write
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string] string{"key": key, "value": value})
+}
+
+func postgresHealthHandler(w http.ResponseWriter, r *http.Request) {
+	// check for correct method
+	if r.Method != http.MethodGet {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+
+	// ping postgres
+	if err := postgresPing(); err != nil {
+		http.Error(w, "postgres unavailable", http.StatusServiceUnavailable)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string] string{"status": "ok"})
+}
+
+func postgresPeersHandler(w http.ResponseWriter, r *http.Request) {
+	// check for method
+	if r.Method != http.MethodGet {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+
+	// get list for peers
+	peers, err := postgresListPeers()
+	if err != nil {
+		http.Error(w, "failed to read postgres", http.StatusInternalServerError)
+		return
+	}
+
+	// send peers
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(peers)
+}
+
+func postgresFilePeersHandler(w http.ResponseWriter, r *http.Request) {
+	// check method
+	if r.Method != http.MethodGet {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+
+	// filter fileId
+	fileId := r.URL.Query().Get("fileId")
+	// invalid
+	if fileId == "" {
+		http.Error(w, "failed to read postgres", http.StatusInternalServerError)
+		return
+	}
+
+	// get peer list with particular fileId
+	peers, err := postgresListPeersForFile(fileId)
+	if err != nil {
+		http.Error(w, "failed to read postgres", http.StatusInternalServerError)
+		return
+	}
+
+	// send peers list
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(peers)
 }
