@@ -28,6 +28,10 @@ func main() {
 	http.HandleFunc("/postgres/peers", postgresPeersHandler)
 	http.HandleFunc("/postgres/files", postgresFilePeersHandler)
 
+	http.HandleFunc("/postgres/file/register", fileMetadataRegisterHandler)
+	http.HandleFunc("/postgres/file/get", fileMetadataGetHandler)
+	http.HandleFunc("/postgres/file/list", fileMetadataListHandler)
+
 	log.Println("Go servcie listening on :8080") // testing purpose
 	log.Fatal(http.ListenAndServe(":8080", nil))
 }

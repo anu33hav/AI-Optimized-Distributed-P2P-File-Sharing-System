@@ -238,3 +238,87 @@ func postgresFilePeersHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(peers)
 }
+
+func fileMetadataRegisterHandler(w http.ResponseWriter, r *http.Request) {
+	// check correct method POST
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+
+	// decode req
+	var req FileMetadataRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+	// check valid metadata
+	if req.FileId == "" || req.FileName == "" || req.FileHash == "" {
+		http.Error(w, "missing file metadata fields", http.StatusBadRequest)
+		return
+	}
+
+	// assign req into filemetadata
+	meta := FileMetadata {
+		FileId: req.FileId,
+		FileName: req.FileName,
+		FileSize: req.FileSize,
+		ChunkSize: req.ChunkSize,
+		ChunkCount: req.ChunkCount,
+		FileHash: req.FileHash,
+	}
+	// upsertfile into postgres
+	if err := postgresUpsertFile(meta); err != nil {
+		http.Error(w, "failed to write postgres", http.StatusInternalServerError)
+		return
+	}
+
+	// send meta
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(meta)
+}
+
+func fileMetadataGetHandler(w http.ResponseWriter, r *http.Request) {
+	// check method - GET
+	if r.Method != http.MethodGet {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+
+	// from request get fileId
+	fileId := r.URL.Query().Get("fileId")
+	if fileId == "" {
+		http.Error(w, "missing fileId", http.StatusBadRequest)
+		return
+	}
+
+	// get file metadata
+	meta, err := postgresGetFileMetadata(fileId)
+	if err != nil {
+		http.Error(w, "file not found", http.StatusNotFound)
+		return
+	}
+
+	// send
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(meta)
+}
+
+func fileMetadataListHandler(w http.ResponseWriter, r *http.Request) {
+	// get method
+	if r.Method != http.MethodGet {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+
+	// get list of files
+	files, err := postgresListFiles()
+	if err != nil {
+		http.Error(w, "failed to read postgres", http.StatusInternalServerError)
+		return
+	}
+
+	// send file
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(files);
+}

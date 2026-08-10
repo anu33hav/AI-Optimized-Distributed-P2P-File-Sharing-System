@@ -53,7 +53,22 @@ func ensurePostgresSchema() error {
 		updatedAt TIMESTAMPTZ NOT NULL DEFAULT NOW()
 	);`
 
-	_, err := postgresDB.Exec(createTable)
+	const createFilesTable = `CREATE TABLE IF NOT EXISTS tracker_files (
+		fileId TEXT PRIMARY KEY,
+		fileName TEXT NOT NULL,
+		fileSize BIGINT NOT NULL,
+		chunkSize BIGINT NOT NULL,
+		chunkCount INT NOT NULL,
+		fileHash TEXT NOT NULL,
+		createdAt TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+		updatedAt TIMESTAMPTZ NOT NULL DEFAULT NOW()
+	);`
+
+	if _, err := postgresDB.Exec(createTable); err != nil {
+		return err
+	}
+
+	_, err := postgresDB.Exec(createFilesTable)
 	return err
 }
 
@@ -195,5 +210,85 @@ func postgresListPeersForFile(fileId string) ([]PeerInfo, error) {
 	}
 
 	return peers, rows.Err()
+}
 
+func postgresUpsertFile(meta FileMetadata) error {
+	// inesrt query
+	const query = `INSERT INTO tracker_files (fileId, fileName, fileSize, chunkSize, chunkCount, fileHash, createdAt, updatedAt)
+	VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())
+	ON CONFLICT (fileId)
+	DO UPDATE SET
+		fileName = EXCLUDED.fileName,
+		fileSize = EXCLUDED.fileSize,
+		chunkSize = EXCLUDED.chunkSize,
+		chunkCount = EXCLUDED.chunkCount,
+		fileHash = EXCLUDED.fileHash,
+		updatedAT = NOW();`
+	// exec the query
+	_, err := postgresDB.Exec(
+		query,
+		meta.FileId,
+		meta.FileName,
+		meta.FileSize,
+		meta.ChunkSize,
+		meta.ChunkCount,
+		meta.FileHash,
+	)
+	return err
+}
+
+func postgresGetFileMetadata(fileId string) (*FileMetadata, error) {
+	// make query for select filter fileId
+	const query = `SELECT fileId, fileName, fileSize, chunkSize, chunkCount, fileHash, createdAt, updatedAt FROM tracker_files WHERE fileId = $1;`
+
+	// fetch whol row and past into meta
+	var meta FileMetadata
+	err := postgresDB.QueryRow(query, fileId).Scan(
+		&meta.FileId,
+		&meta.FileName,
+		&meta.FileSize,
+		&meta.ChunkSize,
+		&meta.ChunkCount,
+		&meta.FileHash,
+		&meta.CreatedAt,
+		&meta.UpdatedAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return &meta, nil
+}
+
+func postgresListFiles() ([]FileMetadata, error) {
+	// make query for get files
+	const query = `SELECT fileId, fileName, fileSize, chunkSize, chunkCount, fileHash, createdAt, updatedAt FROM tracker_files ORDER BY updatedAt DESC;`
+
+	// exec query
+	rows, err := postgresDB.Query(query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	
+	files := make([]FileMetadata, 0)
+	for rows.Next() {
+		//fetch from db and paste
+		var meta FileMetadata
+		if err := rows.Scan(
+			&meta.FileId,
+			&meta.FileName,
+			&meta.FileSize,
+			&meta.ChunkSize,
+			&meta.ChunkCount,
+			&meta.FileHash,
+			&meta.CreatedAt,
+			&meta.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		// store in files
+		files = append(files, meta)
+	}
+
+	return files, rows.Err()
 }

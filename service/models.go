@@ -1,5 +1,7 @@
 package main
 
+import "time"
+
 type PeerInfo struct {
 	PeerId    string    `json:"peerId"`
 	IP    string    `json:"ip"`
@@ -23,4 +25,24 @@ type HeartbeatRequest struct {
 type RedisKVRequest struct {
 	Key    string    `json:"key"`
 	Value    string    `json:"value"`
+}
+
+type FileMetadata struct {
+	FileId		string		`json:"fileID"`
+	FileName		string `json:"fileName"`
+	FileSize		int		`json:"fileSize"`
+	ChunkSize		int		`json:"chunkSize"`
+	ChunkCount		int		`json:"chunkCount"`
+	FileHash		string		`json:"fileHash"`
+	CreatedAt		time.Time	`json:"createdAt,omitempty"`
+	UpdatedAt		time.Time	`json:"updatedAt,omitempty"`
+}
+
+type FileMetadataRequest struct {
+	FileId		string		`json:"fileId"`
+	FileName		string		`json:"fileName"`
+	FileSize		int		`json:"fileSize"`
+	ChunkSize		int		`json:"chunkSize"`
+	ChunkCount		int		`json:"chunkCount"`
+	FileHash		string		`json:"fileHash"`
 }
