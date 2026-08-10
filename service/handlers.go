@@ -3,9 +3,9 @@ package main
 import (
 	"encoding/json"
 	"net/http"
+	"strconv"
 	"time"
 )
-
 
 // go alreaady created a network connection that have r, w and calls your handler
 // reponseWriter is a interface -> Header, write (int, error) and writeHeader (statuscode ints)
@@ -321,4 +321,109 @@ func fileMetadataListHandler(w http.ResponseWriter, r *http.Request) {
 	// send file
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(files);
+}
+
+func chunkMappingRegisterHandler(w http.ResponseWriter, r *http.Request) {
+	/// check method
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+
+	// decode req
+	var req ChunkMappingRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+
+	// valid req
+	if req.FileId == "" || req.PeerId == "" || req.ChunkId < 0 {
+		http.Error(w, "missing chunk mapping fields", http.StatusBadRequest)
+		return
+	}
+
+	// save in chunkmap
+	mapping := ChunkMapping {
+		FileId: req.FileId,
+		ChunkId: req.ChunkId,
+		PeerId: req.PeerId,
+		HasChunk: true,
+	}
+	// store
+	if err := postgresUpsertChunkMapping(mapping); err != nil {
+		http.Error(w, "failed to write postgres", http.StatusInternalServerError)
+		return
+	}
+
+	// send mapping
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(mapping)
+}
+
+func chunkMappingsForFileHandler(w http.ResponseWriter, r *http.Request) {
+	// check get method
+	if r.Method != http.MethodGet {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+
+	// filter fileId
+	fileId := r.URL.Query().Get("fileId")
+	if fileId == "" {
+		http.Error(w, "missing fileId", http.StatusBadRequest)
+		return
+	}
+
+	// get chunk mapping list for file
+	mappings, err := postgresListChunkMappingsForFile(fileId)
+	if err != nil {
+		http.Error(w, "failed to read postgres", http.StatusInternalServerError)
+		return
+	}
+
+	// send mapping
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(mappings)
+}
+
+func chunkOwnersHandler(w http.ResponseWriter, r *http.Request) {
+	// check get method
+	if r.Method != http.MethodGet {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+
+	// filter fileId
+	fileId := r.URL.Query().Get("fileId")
+	if fileId == "" {
+		http.Error(w, "missing fileId", http.StatusBadRequest)
+		return
+	}
+
+	// filter chunkId
+	chunkIdStr := r.URL.Query().Get("chunkId")
+	if fileId == "" {
+		http.Error(w, "missing fileId", http.StatusBadRequest)
+		return
+	}
+
+	// convert string to int
+	chunkId, err := strconv.Atoi(chunkIdStr)
+	if err != nil {
+		http.Error(w, "invalid chunkid", http.StatusBadRequest)
+		return
+	}
+
+	// get peers list for chunk
+	peers, err := postgresListPeersForChunk(fileId, chunkId)
+	if err != nil {
+		http.Error(w, "failed to read postgres", http.StatusInternalServerError)
+		return
+	}
+
+	// send list
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(peers)
+
 }

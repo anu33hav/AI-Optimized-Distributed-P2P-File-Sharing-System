@@ -64,6 +64,19 @@ func ensurePostgresSchema() error {
 		updatedAt TIMESTAMPTZ NOT NULL DEFAULT NOW()
 	);`
 
+	const createChunkMapTable = `CREATE TABLE IF NOT EXISTS tracker_chunk_map (
+		fileId TEXT NOT NULL,
+		chunkId INT NOT NULL,
+		peerId TEXT NOT NULL,
+		hasChunk BOOLEAN NOT NULL DEFAULT TRUE,
+		updatedAt TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+		PRIMARY KEY (fileId, chunkId, peerId)
+	)`
+
+	if _, err := postgresDB.Exec(createChunkMapTable); err != nil {
+		return err
+	}
+
 	if _, err := postgresDB.Exec(createTable); err != nil {
 		return err
 	}
@@ -291,4 +304,80 @@ func postgresListFiles() ([]FileMetadata, error) {
 	}
 
 	return files, rows.Err()
+}
+
+func postgresUpsertChunkMapping(m ChunkMapping) error {
+	// insert query
+	const query = `INSERT INTO tracker_chunk_map(fileId, chunkId, peerId, hasChunk, updatedAt)
+	VALUES($1, $2, $3, TRUE, NOW())
+	ON CONFLICT(fileId, chunkId, peerId)
+	DO UPDATE SET
+		hasChunk = EXCLUDED.hasChunk,
+		updatedAt = NOW();`
+	
+	// exec query
+	_, err := postgresDB.Exec(query, m.FileId, m.ChunkId, m.PeerId)
+	return err
+}
+
+func postgresListChunkMappingsForFile(fileId string) ([]ChunkMapping, error) {
+	// select query
+	const query = `SELECT fileId, chunkId, peerId, hasChunk, updatedAt FROM tracker_chunk_map WHERE fileId = $1 ORDER BY chunkId ASC, updatedAt DESC;`
+
+	// exec query
+	rows, err := postgresDB.Query(query, fileId)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	// run on result
+	mapping := make([]ChunkMapping, 0)
+	for rows.Next() {
+		var m ChunkMapping
+		if err := rows.Scan(&m.FileId, &m.ChunkId, &m.PeerId, &m.HasChunk, &m.UpdatedAt); err != nil {
+			return nil, err
+		}
+		// store the chunk mapping
+		mapping = append(mapping, m)
+	}
+
+	return mapping, rows.Err()
+}
+
+func postgresListPeersForChunk(fileId string, chunkId int) ([]PeerInfo, error) {
+	// select query
+	const query = `SELECT p.peerId, p.ip, p.port, p.files, p.lastSeen, p.online 
+	FROM tracker_chunk_map m JOIN tracker_peers p ON p.peerId = m.peerId 
+	WHERE m.fileId = $1 AND m.chunkId = $2 AND m.hasChunk = TRUE ORDER BY m.updatedAt DESC;`
+
+	// exec query
+	rows, err := postgresDB.Query(query, fileId, chunkId)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	// run on reuslt
+	peers := make([]PeerInfo, 0)
+	for rows.Next() {
+		var (
+			peer	PeerInfo
+			filesJSON	[]byte
+		)
+		// fetch result
+		if err := rows.Scan(&peer.PeerId, &peer.IP, &peer.Port, &filesJSON, &peer.LastSeen, &peer.Online); err != nil {
+			return nil, err
+		}
+		// convert json to butes
+		if len(filesJSON) > 0 {
+			if err := json.Unmarshal(filesJSON, &peer.Files); err != nil {
+				return nil, err
+			}
+		}
+
+		peers = append(peers, peer)
+	}
+
+	return peers, rows.Err()
 }
