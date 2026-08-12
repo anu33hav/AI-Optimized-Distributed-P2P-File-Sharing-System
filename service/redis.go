@@ -90,3 +90,38 @@ func redisScanKeys(pattern string) ([]string, error) {
 
 	return keys, nil
 }
+
+func redisGetValInt(key string) (int64, error) {
+	return redisClient.Get(redisCtx, key).Int64()
+}
+
+func redisSetKeyValInt(key string, value int64, ttl time.Duration) error {
+	return redisClient.Set(redisCtx, key, value, ttl).Err()
+}
+
+func redisSetKeyValIntIfAbsent(key string, value int64, ttl time.Duration) (bool, error) {
+	return redisClient.SetNX(redisCtx, key, value, ttl).Result()
+}
+
+func redisIncrInt(key string, ttl time.Duration) (int64, error) {
+	val, err := redisClient.Incr(redisCtx, key).Result()
+	if err != nil {
+		return 0, err
+	}
+	if ttl > 0 {
+		_ = redisExpire(key, ttl)
+	}
+
+	return val, nil
+}
+
+func redisDecrInt(key string, ttl time.Duration) (int64, error) {
+	val, err := redisClient.Decr(redisCtx, key).Result()
+	if err != nil {
+		return 0, err
+	}
+	if ttl > 0 {
+		_ = redisExpire(key, ttl)
+	}
+	return val, nil
+}

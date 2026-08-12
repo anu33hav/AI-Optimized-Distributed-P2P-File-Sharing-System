@@ -50,7 +50,7 @@ type FileMetadataRequest struct {
 type ChunkMapping struct {
 	FileId		string		`json:"fileId"`
 	ChunkId		int		`json:"chunkId"`
-	PeerId		string		`json:peerId`
+	PeerId		string		`json:"peerId"`
 	HasChunk		bool		`json:"hasChunk"`
 	UpdatedAt		time.Time		`json:"UpdateAt,omitempty"`
 }
@@ -58,5 +58,9 @@ type ChunkMapping struct {
 type ChunkMappingRequest struct {
 	FileId		string		`json:"fileId"`
 	ChunkId		int		`json:"ChunkId"`
+	PeerId		string		`json:"peerId"`
+}
+
+type LoadRequest struct {
 	PeerId		string		`json:"peerId"`
 }

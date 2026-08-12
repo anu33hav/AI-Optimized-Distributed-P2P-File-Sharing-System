@@ -66,7 +66,7 @@ func filePeersHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(peerForFile(fileId)) // sends peers twith that have fileId
+	_ = json.NewEncoder(w).Encode(peerForFileBalanced(fileId)) // sends peers twith that have fileId
 }
 
 
@@ -426,4 +426,94 @@ func chunkOwnersHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(peers)
 
+}
+
+func peerLoadStatusHandler(w http.ResponseWriter, r *http.Request) {
+	// method check
+	if r.Method != http.MethodGet {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+
+	// filter peerId
+	peerId := r.URL.Query().Get("peerId")
+	if peerId == "" {
+		http.Error(w, "missing peerId", http.StatusBadRequest)
+		return
+	}
+
+	// send peer load
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string] any {
+		"peerId": peerId,
+		"activeRequests": getPeerLoad(peerId),
+	})
+}
+
+func peerLoadReserveHandler(w http.ResponseWriter, r *http.Request) {
+	// POST method
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+
+	// decode req
+	var req LoadRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+	// invalid peerId
+	if req.PeerId == "" {
+		http.Error(w, "missing peerId", http.StatusBadRequest)
+		return
+	}
+
+	// inc the load
+	load, err := reservePeerLoad(req.PeerId)
+	if err != nil {
+		http.Error(w, "failed to reserve load", http.StatusInternalServerError)
+		return
+	}
+
+	// send load
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string] any {
+		"peerId": req.PeerId,
+		"activeRequests": load,
+	})
+}
+
+func peerLoadReleaseHandler(w http.ResponseWriter, r *http.Request) {
+	// check post method
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+
+	// decode req
+	var req LoadRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+	// invalid peerId
+	if req.PeerId == "" {
+		http.Error(w, "missing peerId", http.StatusBadRequest)
+		return
+	}
+
+	// dec load
+	load, err := releasePeerLoad(req.PeerId)
+	if err != nil {
+		http.Error(w, "failed to release load", http.StatusInternalServerError)
+		return
+	}
+
+	// send load
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string] any {
+		"peerId": req.PeerId,
+		"activeRequests": load,
+	})
 }
