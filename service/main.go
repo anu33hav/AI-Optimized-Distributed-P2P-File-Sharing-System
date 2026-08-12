@@ -36,6 +36,11 @@ func main() {
 	http.HandleFunc("/postgres/chunk/file", chunkMappingsForFileHandler)
 	http.HandleFunc("/postgres/chunk/owners", chunkOwnersHandler)
 
+	http.HandleFunc("/load/status", peerLoadStatusHandler)
+	http.HandleFunc("/load/reserve", peerLoadReserveHandler)
+	http.HandleFunc("/load/release", peerLoadReleaseHandler)
+
 	log.Println("Go servcie listening on :8080") // testing purpose
 	log.Fatal(http.ListenAndServe(":8080", nil))
 }
+

@@ -2,6 +2,7 @@ package main
 
 import (
 		"time"
+		"sort"
 		)
 
 // var (
@@ -111,6 +112,13 @@ func upsertPeer(peer PeerInfo) {
 		return
 	}
 
+	// store curr load on peer
+	if currentLoad, err := redisGetValInt(peerLoadKey(peer.PeerId)); err == nil {
+		_ = redisSetKeyValInt(peerLoadKey(peer.PeerId), currentLoad, peerRecordTTL)
+	} else {
+		_, _ = redisSetKeyValIntIfAbsent(peerLoadKey(peer.PeerId), 0, peerRecordTTL)
+	}
+
 	// add this peer to each file, eg. file1 -> peer2, peer1, file2 -> peer3, peer1
 	for _, fileId := range peer.Files {
 		_ = redisSetKeyValAdd(filePeersKey(fileId), peer.PeerId)
@@ -192,6 +200,9 @@ func touchPeer(peerId string) bool {
 		return false;
 	}
 
+	// inc this load key
+	_ = redisExpire(peerLoadKey(peerId), peerRecordTTL)
+
 	// store peer in fileId that peer have
 	for _, fileId := range peer.Files {
 		_ = redisExpire(filePeersKey(fileId), peerRecordTTL)
@@ -199,3 +210,53 @@ func touchPeer(peerId string) bool {
 
 	return true;
 }
+
+func peerLoadKey(peerId string) string {
+	return "peer:" + peerId + ":load"
+}
+
+func getPeerLoad(peerId string) int64 {
+	load, err := redisGetValInt(peerLoadKey(peerId))
+	if err != nil || load < 0 {
+		return 0
+	}
+	return load
+}
+
+func reservePeerLoad(peerId string) (int64, error) {
+	// inc load
+	return redisIncrInt(peerLoadKey(peerId), peerRecordTTL)
+}
+
+func releasePeerLoad(peerId string) (int64, error) {
+	// dec load
+	load, err := redisDecrInt(peerLoadKey(peerId), peerRecordTTL)
+	if err != nil {
+		return 0, err
+	}
+	if load < 0 {
+		_ = redisSetKeyValInt(peerLoadKey(peerId), 0, peerRecordTTL)
+		return 0, nil
+	}
+	return load, nil
+}
+
+func peerForFileBalanced(fileId string) []PeerInfo {
+	// get peers list for file
+	peers := peerForFile(fileId)
+
+	// sort it based on peerLoad
+	sort.Slice(peers, func(i int, j int) bool {
+		leftLoad := getPeerLoad(peers[i].PeerId)
+		rightLoad := getPeerLoad(peers[j].PeerId)
+
+		if leftLoad == rightLoad {
+			return peers[i].LastSeen > peers[j].LastSeen
+		}
+
+		return leftLoad < rightLoad
+	})
+
+	return peers
+}
+
