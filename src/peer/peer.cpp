@@ -14,6 +14,7 @@
 #include <thread>
 #include "file/hashUtils.h"
 #include "file/metadataManager.h"
+#include "peer/chunkScheduler.h"
 using namespace std;
 
 
@@ -737,58 +738,77 @@ bool downloadFileFromMultiplePeers(const PeerConfig &config, const std::vector<P
         return false;
     }
 
-    set<int> requestedChunks; // should be unique
+    // keep scheduler up to date with already finished chunks
+    ChunkScheduler scheduler(totalChunks);
+    for (int i = 0; i < totalChunks; i++) {
+        // done or already present
+        if (chunkStatus[i] == ChunkDownloadStatus::DONE || localChunkAlreadyExists(config, fileId, i)) {
+            chunkStatus[i] = ChunkDownloadStatus::DONE;
+            scheduler.markDone(i);
+            cout << "Skipping chunk " << i << " because it already completed or exists" << endl;
+        }
+    }
+
+    // set<int> requestedChunks; // should be unique
     mutex stateMutex;
     vector<thread> workers;
+    size_t workerCount = min(usablePeers.size(), (size_t)totalChunks);
+    if (workerCount == 0) return false;
 
-    // traverse on all chunks
-    for (int chunkId = 0; chunkId < totalChunks; chunkId++) {
+    // traverse on undone chunks
+    for (size_t i = 0; i < workerCount; i++) {
+        
+        workers.emplace_back([&, i] () { // use all varible in this func by reference, copy
+            // if 10,000 chunks == 10,000 threads -> overhead, so we create max wokerCount thread, 1 thread can ask for more than 1 chunkId sequentially
+            while (true) {
+                // get next chunkId that is undone
+                int chunkId = scheduler.getNextChunk();
+                // not present - means all done
+                if (chunkId == -1) return;
 
-        // prev downloaded || already exists
-        if (chunkStatus[chunkId] == ChunkDownloadStatus::DONE || localChunkAlreadyExists(config, fileId, chunkId)) {
-            // mark chunk status done bc its already exxists
-            chunkStatus[chunkId] = ChunkDownloadStatus::DONE;
-            cout << "Skipping chunk " << chunkId << "because it already completed or exists" << endl;
-            continue;
-        }
+                // peer assignment
+                size_t startPeerIndex = (size_t)chunkId%usablePeers.size();
+                const PeerEndpoint &assignedPeer = usablePeers[startPeerIndex];
+                {
+                    lock_guard<mutex> lock(stateMutex);
 
-        // not exists
-        workers.emplace_back([&, chunkId] () { // use all varible in this func by reference, copy, copy
+                    // skip duplicate request
+                    // if (requestedChunks.count(chunkId)) {
+                    //     cout << "Skipping duplicate request for chunk: " << chunkId << endl;
+                    //     return;
+                    // }
 
-            // peer assignment
-            size_t startPeerIndex = 0;
-            {
-                lock_guard<mutex> lock(stateMutex);
+                    // not a duplicate request - store
+                    // requestedChunks.insert(chunkId);
+                    // mark status for this particular chunkId to INPROGRESS
+                    chunkStatus[chunkId] = ChunkDownloadStatus::IN_PROGRESS;
 
-                // skip duplicate request
-                if (requestedChunks.count(chunkId)) {
-                    cout << "Skipping duplicate request for chunk: " << chunkId << endl;
-                    return;
+                    // scheduling round robin - load is distributed
+                    // startPeerIndex = chunkId % usablePeers.size();
+                    // const PeerEndpoint &assignedPeer = usablePeers[startPeerIndex];
+                    
+                    // save donwload state
+                    saveDownloadState(config, fileId, chunkStatus);
+
+                    cout << "Chunk " << chunkId << " initially assigned to " << assignedPeer.peerId << " " << assignedPeer.ip << ":" << assignedPeer.port << endl;
                 }
 
-                // not a duplicate request - store
-                requestedChunks.insert(chunkId);
-                // mark status for this particular chunkId to INPROGRESS
-                chunkStatus[chunkId] = ChunkDownloadStatus::IN_PROGRESS;
-
-                // scheduling round robin - load is distributed
-                startPeerIndex = chunkId % usablePeers.size();
-                const PeerEndpoint &assignedPeer = usablePeers[startPeerIndex];
-
-                cout << "Chunk " << chunkId << " initially assigned to " << assignedPeer.peerId << " " << assignedPeer.ip << ":" << assignedPeer.port << endl;
-            }
-
-            // request chunk from peer
-            bool ok = requestChunkFromAnyPeer(config, usablePeers, fileId, chunkId, startPeerIndex);
-            {
-                lock_guard<mutex> lock(stateMutex);
-                // got chunk
-                if (ok) {
-                    chunkStatus[chunkId] = ChunkDownloadStatus::DONE;
-                    saveDownloadState(config, fileId, chunkStatus);
-                } 
-                else {
-                    chunkStatus[chunkId] = ChunkDownloadStatus::FAILED;
+                // request chunk from peer
+                bool ok = requestChunkFromAnyPeer(config, usablePeers, fileId, chunkId, startPeerIndex);
+                {
+                    lock_guard<mutex> lock(stateMutex);
+                    // got chunk
+                    if (ok) {
+                        chunkStatus[chunkId] = ChunkDownloadStatus::DONE;
+                        // saveDownloadState(config, fileId, chunkStatus);
+                        scheduler.markDone(chunkId);
+                    } 
+                    else {
+                        chunkStatus[chunkId] = ChunkDownloadStatus::FAILED;
+                        // saveDownloadState(config, fileId, chunkStatus);
+                        scheduler.markFailed(chunkId);
+                    }
+                    // save download state
                     saveDownloadState(config, fileId, chunkStatus);
                 }
             }
@@ -805,8 +825,12 @@ bool downloadFileFromMultiplePeers(const PeerConfig &config, const std::vector<P
 
     // print all the chunkstatus
     printChunkStatuses(chunkStatus);
-    if (!allChunksDone(chunkStatus)) {
-        cerr << "Not all chunks downloaded. Merge skipped." << endl;
+    // if (!allChunksDone(chunkStatus)) {
+    //     cerr << "Not all chunks downloaded. Merge skipped." << endl;
+    //     return false;
+    // }
+    if (!scheduler.allDone()) {
+        cerr << "Not all chunks donwloaded. Merge Skipped." << endl;
         return false;
     }
 
