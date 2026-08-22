@@ -4,6 +4,9 @@
 #include <sstream>
 using namespace std;
 
+static constexpr int kMaxChunkId = 1000000;
+static constexpr size_t kMaxChunkSize = 64ULL*1024ULL*1024ULL;
+
 static string trimNewLine(const string &s) {
 
     // not empty && last char is newline
@@ -50,7 +53,9 @@ ParsedMessage parseMessage(const string &rawMessage) {
         if (!(iss >> fileId >> chunkText)) return result;
 
         try {
-            result.chunkId = stoi(chunkText);
+            long long parsedChunkId = stoll(chunkText);
+            if (parsedChunkId < 0 || parsedChunkId > kMaxChunkId) return result;
+            result.chunkId = (int)parsedChunkId;
         }
         catch (...) {
             return result;
@@ -72,8 +77,14 @@ ParsedMessage parseMessage(const string &rawMessage) {
         if (!(iss >> chunkHash)) return result;
 
         try {
-            result.chunkId = stoi(chunkText);
-            result.chunkSize = stoi(chunkSizeText);
+            long long parsedChunkId = stoll(chunkText);
+            long long parsedChunkSize = stoll(chunkSizeText);
+
+            if (parsedChunkId < 0 || parsedChunkId > kMaxChunkId) return result;
+            if (parsedChunkSize <= 0 || parsedChunkSize > (long long)kMaxChunkSize) return result;
+
+            result.chunkId = (int)parsedChunkId;
+            result.chunkSize = (size_t)parsedChunkSize;
         }
         catch (...) {
             return result;

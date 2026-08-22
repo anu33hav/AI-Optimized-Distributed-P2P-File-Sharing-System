@@ -10,6 +10,8 @@ int main() {
     config.chunkDir = "data/peers/peer2/chunks";
     config.downloadDir = "data/peers/peer2/downloads";
     config.reconstructedDir = "data/peers/peer2/reconstructed";
+    config.trackerIp = "127.0.0.1";
+    config.trackerPort = 8080;
 
     std::filesystem::create_directories(config.reconstructedDir);
 

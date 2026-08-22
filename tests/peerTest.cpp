@@ -55,6 +55,8 @@ int main(int argc, char *argv[]) {
     config.chunkDir = localRootDir + "/chunks";
     config.downloadDir = localRootDir + "/downloads";
     config.reconstructedDir = localRootDir + "/reconstructed";
+    config.trackerIp = "127.0.0.1";
+    config.trackerPort = 8080;
 
     const string serviceIp = "127.0.0.1";
     const int servicePort = 8080;

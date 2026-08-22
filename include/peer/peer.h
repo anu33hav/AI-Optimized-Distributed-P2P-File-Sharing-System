@@ -10,6 +10,9 @@ struct PeerConfig {
     std::string chunkDir;
     std::string downloadDir;
     std::string reconstructedDir;
+
+    std::string trackerIp;
+    int trackerPort;
 };
 
 struct PeerEndpoint {

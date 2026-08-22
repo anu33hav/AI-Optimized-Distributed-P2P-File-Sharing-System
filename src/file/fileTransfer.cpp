@@ -5,7 +5,7 @@
 #include "network/socketUtils.h"
 using namespace std;
 
-size_t kTransferBufferSize = 16*1024;
+static constexpr size_t kTransferBufferSize = 16*1024;
 
 long long sendFile(int socketFd, const char* inputPath) {
 
