@@ -1,4 +1,5 @@
 #include "peer/peer.h"
+#include "file/metadataManager.h"
 
 #include <iostream>
 #include <thread>
@@ -24,6 +25,8 @@ PeerConfig buildConfig(const string &peerId, int port, const string &rootDir) {
     config.chunkDir = rootDir + "/chunks";
     config.downloadDir = rootDir + "/downloads";
     config.reconstructedDir = rootDir + "/reconstructed";
+    config.trackerIp = "127.0.0.1";
+    config.trackerPort = 8080;
     return config;
 }
 
@@ -56,6 +59,12 @@ int runDownloaderPeer(const string &peerId, int port, const string &rootDir, con
     const int servicePort = 8080;
 
     PeerConfig config = buildConfig(peerId, port, rootDir);
+
+    if (!buildAndStoreMetadata("/tmp/day44/reference_inputA.bin", "data/chunks", "inputA", 524288, 3)) {
+        cerr << "failed to load file metadata" << endl;
+        return -1;
+    }
+
     if (!registerPeerWithService(config, serviceIp, serviceIp, servicePort)) {
         cerr << "registration failed for " << peerId << endl;
         return -1;

@@ -15,9 +15,12 @@
 #include "file/hashUtils.h"
 #include "file/metadataManager.h"
 #include "peer/chunkScheduler.h"
+#include "peer/threadPool.h"
+#include "algorithm"
+#include <regex>
 using namespace std;
 
-size_t kTransferBufferSize = 16*1024;
+static constexpr size_t kTransferBufferSize = 16*1024;
 
 
 bool handlePeerRequest(int serverToClientSocketFd, const PeerConfig &config); // startPeerServer helper
@@ -55,6 +58,10 @@ bool isChunkPresentAndValid(const PeerConfig &config, const string &fileId, int 
 
 bool removeFileIfExists(const string &path);
 
+static bool isSafeFileId(const string &fileId);
+
+bool reservePeerLoadRemote(const string &serviceIp, int servicePort, const string &peerId);
+
 bool startPeerServer(const PeerConfig &config) { // server side
 
     // make peer structure
@@ -66,6 +73,11 @@ bool startPeerServer(const PeerConfig &config) { // server side
 
     cout << "Peer " << config.peerId << " waiting on port " << config.port << endl;
 
+    size_t poolSize = thread::hardware_concurrency();
+    if (poolSize == 0) poolSize = 4;
+
+    ThreadPool pool((int)poolSize);
+
     // look for another peer also
     while (true) {
         // accept another peer
@@ -75,13 +87,14 @@ bool startPeerServer(const PeerConfig &config) { // server side
             return false;
         }
 
-        // need to handle the peer request
-        bool requestFromPeer = handlePeerRequest(serverToClientSocketFd, config);
-        
-        // close socket
-        closeSocket(serverToClientSocketFd);
-        
-        if (!requestFromPeer) continue; // dont kill the whole server because one request was bad
+        pool.addTask([serverToClientSocketFd, &config] () {
+            // need to handle the peer request
+            bool requestFromPeer = handlePeerRequest(serverToClientSocketFd, config);
+            // close serverclient socket
+            closeSocket(serverToClientSocketFd);
+        });
+
+        // if (!requestFromPeer) continue; // dont kill the whole server because one request was bad
     }
 
     // close socketet
@@ -119,6 +132,13 @@ bool requestChunkFromPeer(const PeerConfig &config, const string &ip, int port, 
         return false;
     }
     if (!setSocketSendTimeout(clientSocketFd, 5)) {
+        closeSocket(clientSocketFd);
+        return false;
+    }
+
+    // check valid fileId
+    if (!isSafeFileId(fileId)) {
+        cerr << "invalid fileId: " << fileId << endl;
         closeSocket(clientSocketFd);
         return false;
     }
@@ -213,6 +233,12 @@ bool handlePeerRequest(int serverToClientSocketFd, const PeerConfig &config) { /
         return false;
     }
 
+    if (!isSafeFileId(msg.fileId)) {
+        string errorMsg = buildErrorMessage("invalid_file_id");
+        sendAll(serverToClientSocketFd, errorMsg.c_str(), errorMsg.size());
+        return false;
+    }
+
     // valid
     if (msg.type == MessageType::REQUEST) {
         return serveRequestedChunk(serverToClientSocketFd, config, msg.fileId, msg.chunkId);
@@ -226,6 +252,13 @@ bool handlePeerRequest(int serverToClientSocketFd, const PeerConfig &config) { /
 
 bool serveRequestedChunk(int serverToClientSocketFd, const PeerConfig &config, const std::string &fileId, int chunkId) {
     
+    // valid fileID
+    if (!isSafeFileId(fileId)) {
+        string errorMsg = buildErrorMessage("invalid_file_id");
+        sendAll(serverToClientSocketFd, errorMsg.c_str(), errorMsg.size());
+        return false;
+    }
+
     // find chunk Path
     string chunkPath = findServableChunkPath(config, fileId, chunkId);
     // check if chunk exists or not
@@ -575,12 +608,7 @@ bool sendHeartbeatToService(const PeerConfig &config, const std::string &service
         // get response
         response.append(buffer, (size_t)n); 
     }
-enum class ChunkDownloadStatus {
-    NOT_STARTED,
-    IN_PROGRESS,
-    DONE,
-    FAILED
-};
+
     closeSocket(clientSocketFd);
     return response.find("200 OK") != string::npos;
 }
@@ -751,14 +779,20 @@ bool downloadFileFromMultiplePeers(const PeerConfig &config, const std::vector<P
 
     // set<int> requestedChunks; // should be unique
     mutex stateMutex;
-    vector<thread> workers;
-    size_t workerCount = min(usablePeers.size(), (size_t)totalChunks);
+    
+    size_t cpuCount = thread::hardware_concurrency();
+    // cant be determined
+    if (cpuCount == 0) {
+        cpuCount = 4;
+    }
+    size_t workerCount = min({usablePeers.size(), (size_t)totalChunks, cpuCount});
     if (workerCount == 0) return false;
 
+    ThreadPool pool(workerCount);
     // traverse on undone chunks
     for (size_t i = 0; i < workerCount; i++) {
         
-        workers.emplace_back([&, i] () { // use all varible in this func by reference, copy
+        pool.addTask([&, i] () { // use all varible in this func by reference, copy
             // if 10,000 chunks == 10,000 threads -> overhead, so we create max wokerCount thread, 1 thread can ask for more than 1 chunkId sequentially
             while (true) {
                 // get next chunkId that is undone
@@ -815,10 +849,12 @@ bool downloadFileFromMultiplePeers(const PeerConfig &config, const std::vector<P
         });
     }
 
+
     // pause main and wait for thread to execute
-    for (auto &worker : workers) {
-        worker.join();
-    }
+    // for (auto &worker : workers) {
+    //     worker.join();
+    // }
+    pool.wait(); // wait for tasks to get finished
 
     // save final state
     saveDownloadState(config, fileId, chunkStatus);
@@ -1073,13 +1109,23 @@ bool requestChunkFromAnyPeer(const PeerConfig &config, const vector<PeerEndpoint
 
         cout << "Trying chunk " << chunkId << " from " << peer.peerId << " " << peer.ip << ":" << peer.port << endl;
 
+        if (!reservePeerLoadRemote(config.trackerIp, config.trackerPort, peer.peerId)) {
+            cerr << "failed to reserve load for " << peer.peerId << endl;
+            continue;
+        }
         // got the request from chunk - PASSED
-        if (requestChunkFromPeer(config, peer.ip, peer.port, fileId, chunkId)) {
+        bool ok = requestChunkFromPeer(config, peer.ip, peer.port, fileId, chunkId);
+
+        if (!releasePeerLoadRemote(config.trackerIp, config.trackerPort, peer.peerId)) {
+            cerr << "failed to release load for " << peer.peerId << endl;
+        }
+
+        if (ok) {
             cout << "Chunk " << chunkId << " downloaded from " << peer.peerId << endl;
             return true;
         }
 
-        // failed - retry on another chunk
+        // failed - retry on another peer
         cerr << "Chunk " << chunkId << " failed from " << peer.peerId << ", trying next peer" << endl;
     }
 
@@ -1100,3 +1146,84 @@ bool removeFileIfExists(const string &path) {
 
     return true;
 }
+
+
+static bool isSafeFileId(const string &fileId) {
+    // empty or long string
+    if (fileId.empty() || fileId.size()> 128) return false;
+    static const regex kSafeFileId(R"(^[A-Za-z0-9._-]+$)");
+    return regex_match(fileId, kSafeFileId);
+}
+
+bool reservePeerLoadRemote(const string &serviceIp, int servicePort, const string &peerId) {
+
+    int clientSocketFd = connectToServer(serviceIp.c_str(), servicePort);
+    if (clientSocketFd == -1) return false;
+
+    string body = "{\"peerId\":\"" + peerId + "\"}";
+    ostringstream request;
+    request << "POST /load/reserve HTTP/1.1\r\n";
+    request << "Host: " << serviceIp << ":" << servicePort << "\r\n";
+    request << "Content-Type: application/json\r\n";
+    request << "Content-Length: " << body.size() << "\r\n";
+    request << "Connection: close\r\n\r\n";
+    request << body;
+
+    string requestText = request.str();
+    if (sendAll(clientSocketFd, requestText.c_str(), (int)requestText.size()) == -1) {
+        closeSocket(clientSocketFd);
+        return false;
+    }
+
+    string response;
+    char buffer[1024];
+    while (true) {
+        ssize_t n = recv(clientSocketFd, buffer, sizeof(buffer), 0);
+        if (n < 0) {
+            closeSocket(clientSocketFd);
+            return false;
+        }
+        if (n == 0) break;
+        response.append(buffer, (size_t)n);
+    }
+
+    closeSocket(clientSocketFd);
+    return response.find("200 OK") != string::npos;
+}
+
+bool releasePeerLoadRemote(const string &serviceIp, int servicePort, const string &peerId) {
+
+    int clientSocketFd = connectToServer(serviceIp.c_str(), servicePort);
+    if (clientSocketFd == -1) return false;
+
+    string body = "{\"peerId\":\"" + peerId + "\"}";
+    ostringstream request;
+    request << "POST /load/release HTTP/1.1\r\n";
+    request << "Host: " << serviceIp << ":" << servicePort << "\r\n";
+    request << "Content-Type: application/json\r\n";
+    request << "Content-Length: " << body.size() << "\r\n";
+    request << "Connection: close\r\n\r\n";
+    request << body;
+
+    string requestText = request.str();
+    if (sendAll(clientSocketFd, requestText.c_str(), (int)requestText.size()) == -1) {
+        closeSocket(clientSocketFd);
+        return false;
+    }
+
+    string response;
+    char buffer[1024];
+    while (true) {
+        ssize_t n = recv(clientSocketFd, buffer, sizeof(buffer), 0);
+        if (n < 0) {
+            closeSocket(clientSocketFd);
+            return false;
+        }
+        if (n == 0) break;
+        response.append(buffer, (size_t)n);
+    }
+
+    closeSocket(clientSocketFd);
+    return response.find("200 OK") != string::npos;
+}
+

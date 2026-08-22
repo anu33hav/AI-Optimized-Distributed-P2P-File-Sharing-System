@@ -5,7 +5,7 @@
 #include <vector>
 using namespace std;
 
-size_t kTransferBufferSize = 16*1024;
+static constexpr size_t kTransferBufferSize = 16*1024;
 
 int splitFileIntoChunks(const char* inputPath, const char* baseChunkDir, const char* fileId, size_t chunkSize) {
 
