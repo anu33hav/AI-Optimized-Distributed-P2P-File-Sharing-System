@@ -92,8 +92,8 @@ void closeSocket(int socketFd) {
     close(socketFd);
 }
 
-ssize_t sendAll(int socketFd, const char* buffer, int byteRead) {
-    ssize_t byteSent = 0;
+ssize_t sendAll(int socketFd, const char* buffer, size_t byteRead) {
+    size_t byteSent = 0;
     // send till whole byteRead sent
     while (byteSent < byteRead) {
 
@@ -107,7 +107,7 @@ ssize_t sendAll(int socketFd, const char* buffer, int byteRead) {
             return -1;
         }
 
-        byteSent += byteSend;
+        byteSent += (size_t)byteSend;
     }
 
     return byteSent;

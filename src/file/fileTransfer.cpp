@@ -5,6 +5,8 @@
 #include "network/socketUtils.h"
 using namespace std;
 
+size_t kTransferBufferSize = 16*1024;
+
 long long sendFile(int socketFd, const char* inputPath) {
 
     // 01: open file in read mode
@@ -17,17 +19,16 @@ long long sendFile(int socketFd, const char* inputPath) {
 
     // 02: read till eof
     long long sendFileByte = 0;
-    const size_t BUFFER_SIZE = 4096;
-    char readBuffer[BUFFER_SIZE];
+    char readBuffer[kTransferBufferSize];
 
     while (inputFile) {
         // read file
-        inputFile.read(readBuffer, BUFFER_SIZE);
+        inputFile.read(readBuffer, (streamsize)kTransferBufferSize);
         // how much bytes it read
         streamsize byteRead = inputFile.gcount();
 
         if (byteRead > 0) {
-            ssize_t byteSend = sendAll(socketFd, readBuffer, byteRead);
+            ssize_t byteSend = sendAll(socketFd, readBuffer, (size_t)byteRead);
             if (byteSend == -1) {
                 cerr << "failed to send data" << endl;
                 break;
@@ -54,10 +55,9 @@ long long recvFile(int socketFd, const char* outputPath) {
 
     // 02: write in file
     long long receiveFileByte = 0;
-    const int BUFFER_SIZE = 4096;
+    char writeBuffer[kTransferBufferSize];
     while (true) {
-        char writeBuffer[BUFFER_SIZE];
-        ssize_t byteReceive = recv(socketFd, writeBuffer, BUFFER_SIZE, 0);
+        ssize_t byteReceive = recv(socketFd, writeBuffer, kTransferBufferSize, 0);
         if (byteReceive == -1) {
             cerr << "Failed to recv file" << endl;
             break;
