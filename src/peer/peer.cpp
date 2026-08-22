@@ -17,6 +17,8 @@
 #include "peer/chunkScheduler.h"
 using namespace std;
 
+size_t kTransferBufferSize = 16*1024;
+
 
 bool handlePeerRequest(int serverToClientSocketFd, const PeerConfig &config); // startPeerServer helper
 bool serveRequestedChunk(int serverToClientSocketFd, const PeerConfig &config, const std::string &fileId, int chunkId); // handlePeerRequest helper
@@ -262,16 +264,15 @@ bool sendChunkFileInBuffers(int serverToClientSocketFd, const string &chunkPath)
         return false;
     }
 
-    const size_t BUFFER_SIZE = 4096;
-    char buffer[BUFFER_SIZE];
+    char buffer[kTransferBufferSize];
     // till eof
     while (chunkFile) {
         // read file
-        chunkFile.read(buffer, sizeof(buffer));
+        chunkFile.read(buffer, (streamsize)kTransferBufferSize);
         streamsize byteRead = chunkFile.gcount();
 
         if (byteRead > 0) {
-            if (sendAll(serverToClientSocketFd, buffer, byteRead) == -1) {
+            if (sendAll(serverToClientSocketFd, buffer, (size_t)byteRead) == -1) {
                 cerr << "Failed while sending chunk bytes" << endl;
                 return false;
             }
@@ -289,8 +290,7 @@ bool receiveChunkData(int clientSocketFd, const string &outputPath, size_t chunk
     if (!outputFile) return false;
 
     // recv in buffer
-    const size_t BUFFER_SIZE = 4096;
-    char buffer[BUFFER_SIZE];
+    char buffer[kTransferBufferSize];
     size_t remaining = chunkSize;
 
     // got from header \n last chars
@@ -307,7 +307,7 @@ bool receiveChunkData(int clientSocketFd, const string &outputPath, size_t chunk
     }
 
     while (remaining > 0) {
-        size_t toRead = min(BUFFER_SIZE, remaining);
+        size_t toRead = min(kTransferBufferSize, remaining);
         ssize_t byteReceived = recv(clientSocketFd, buffer, toRead, 0);
 
         if (byteReceived < 0) {
@@ -366,7 +366,7 @@ bool readChunkHeader(int clientSocketFd, string &headerLine, string &remainder) 
     remainder.clear();
 
     string accumulated;
-    char buffer[1024];
+    char buffer[kTransferBufferSize];
 
     while (true) {
         // recv data

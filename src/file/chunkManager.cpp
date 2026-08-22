@@ -5,6 +5,8 @@
 #include <vector>
 using namespace std;
 
+size_t kTransferBufferSize = 16*1024;
+
 int splitFileIntoChunks(const char* inputPath, const char* baseChunkDir, const char* fileId, size_t chunkSize) {
 
     // open file
@@ -72,8 +74,7 @@ bool mergeChunks(const char* baseChunkDir, const char* fileId, int totalChunks, 
         return false;
     }
 
-    const size_t BUFFER_SIZE = 4096;
-    vector<char> readBuffer(BUFFER_SIZE);
+    vector<char> readBuffer(kTransferBufferSize);
     // traverse on each chunk
     for (int chunkIndex = 0; chunkIndex < totalChunks; chunkIndex++) {
         
@@ -94,7 +95,7 @@ bool mergeChunks(const char* baseChunkDir, const char* fileId, int totalChunks, 
         // extract till eof
         while (chunkFile) {
             // read file
-            chunkFile.read(readBuffer.data(), BUFFER_SIZE);
+            chunkFile.read(readBuffer.data(), (streamsize)kTransferBufferSize);
             streamsize byteRead = chunkFile.gcount();
 
             // write in output file
